@@ -1,31 +1,38 @@
 // services/governance-service/src/services/complianceEngine.ts
 // Full compliance enforcement: country-rule checks, framework registry,
 // alias-creation gate, and compliance report generation.
+//
+// PERSISTENCE CONTRACT
+// Both runComplianceCheck() and checkAliasCreation() write a row to
+// policy_violations (violationType: 'compliance_failure') whenever their
+// violations[] array is non-empty. The write is fire-and-forget — it never
+// blocks the caller's response path. Successful checks produce no DB write.
 
 import { eq, and, isNull, count as drizzleCount } from 'drizzle-orm';
-import { getDb, aliases } from '@rald-alia/db';
+import { getDb, aliases, governancePolicyViolations } from '@rald-alia/db';
+import { generateId } from '@rald-alia/shared';
 import { CountryRulesEngine, type CountryProfile } from './countryRules';
 
 export interface ComplianceCheckResult {
-  entity_id:         string;
-  country:           string;
-  action:            string;
-  compliant:         boolean;
-  violations:        string[];
-  warnings:          string[];
-  requires_review:   boolean;
+  entity_id:          string;
+  country:            string;
+  action:             string;
+  compliant:          boolean;
+  violations:         string[];
+  warnings:           string[];
+  requires_review:    boolean;
   frameworks_checked: string[];
-  checked_at:        string;
+  checked_at:         string;
 }
 
 export interface AliasCreationCheckResult {
-  allowed:                   boolean;
-  violations:                string[];
-  warnings:                  string[];
-  country_profile:           CountryProfile | null;
-  current_alias_count:       number;
-  max_alias_per_user:        number;
-  kyc_mandatory:             boolean;
+  allowed:                     boolean;
+  violations:                  string[];
+  warnings:                    string[];
+  country_profile:             CountryProfile | null;
+  current_alias_count:         number;
+  max_alias_per_user:          number;
+  kyc_mandatory:               boolean;
   alias_verification_required: boolean;
 }
 
@@ -112,31 +119,83 @@ const FRAMEWORKS: ComplianceFramework[] = [
 ];
 
 export class ComplianceEngine {
-  private db          = getDb();
+  private db           = getDb();
   private countryRules = new CountryRulesEngine();
 
+  // ── Internal: persist violations to policy_violations (fire-and-forget) ─────
+  // policyId convention:
+  //   Compliance checks  → 'COMPLIANCE_CHECK:<action>'   e.g. 'COMPLIANCE_CHECK:alias.create'
+  //   Alias gate checks  → 'ALIAS_CREATION_GATE'
+  // countryCode is the ISO 2-char code for the jurisdiction.
+  // actorType is always 'compliance_engine' — distinguishes these rows from
+  // Kafka-sourced violations (actorType: 'institution').
+  private persistViolations(params: {
+    countryCode:       string;
+    policyId:          string;
+    actorId:           string;
+    actorType:         string;
+    violations:        string[];
+    metadata:          Record<string, unknown>;
+  }): void {
+    const id = generateId('pv');
+    this.db
+      .insert(governancePolicyViolations)
+      .values({
+        id,
+        countryCode:   params.countryCode,
+        policyId:      params.policyId,
+        violationType: 'compliance_failure',
+        actorId:       params.actorId,
+        actorType:     params.actorType,
+        metadata: {
+          ...params.metadata,
+          violations: params.violations,
+        },
+        resolved: false,
+      })
+      .catch((err: unknown) => {
+        // Non-fatal — log and continue. The compliance check result is already
+        // returned to the caller; persistence failure must not bubble up.
+        console.error(
+          { err, policyId: params.policyId, actorId: params.actorId },
+          'ComplianceEngine: failed to persist violation row',
+        );
+      });
+  }
+
+  // ── runComplianceCheck ───────────────────────────────────────────────────────
   async runComplianceCheck(params: {
-    entity_id:  string;
+    entity_id:   string;
     entity_type: string;
-    country:    string;
-    action:     string;
-    amount?:    number;
-    currency?:  string;
+    country:     string;
+    action:      string;
+    amount?:     number;
+    currency?:   string;
   }): Promise<ComplianceCheckResult> {
-    const code             = params.country.toUpperCase();
+    const code              = params.country.toUpperCase();
     const countryFrameworks = FRAMEWORKS.filter((f) => f.country === code);
-    const profile          = this.countryRules.getProfile(code);
-    const rules            = this.countryRules.getRules(code);
-    const violations:   string[] = [];
-    const warnings:     string[] = [];
+    const profile           = this.countryRules.getProfile(code);
+    const rules             = this.countryRules.getRules(code);
+    const violations:  string[] = [];
+    const warnings:    string[] = [];
 
     if (!profile) {
       violations.push(`Country ${code} is not a supported ALIA jurisdiction`);
-      return {
+      const result: ComplianceCheckResult = {
         entity_id: params.entity_id, country: code, action: params.action,
         compliant: false, violations, warnings, requires_review: false,
         frameworks_checked: [], checked_at: new Date().toISOString(),
       };
+      // Persist: unsupported-jurisdiction is always a hard violation
+      this.persistViolations({
+        countryCode: code,
+        policyId:    `COMPLIANCE_CHECK:${params.action}`,
+        actorId:     params.entity_id,
+        actorType:   params.entity_type,
+        violations,
+        metadata: { action: params.action, entity_type: params.entity_type },
+      });
+      return result;
     }
 
     if (params.amount && params.currency) {
@@ -160,23 +219,44 @@ export class ComplianceEngine {
       if (rules?.rules.require_nin) warnings.push('NIN verification required for Nigerian alias registration');
     }
 
-    return {
-      entity_id:         params.entity_id,
-      country:           code,
-      action:            params.action,
-      compliant:         violations.length === 0,
+    const result: ComplianceCheckResult = {
+      entity_id:          params.entity_id,
+      country:            code,
+      action:             params.action,
+      compliant:          violations.length === 0,
       violations,
       warnings,
-      requires_review:   warnings.length > 0,
+      requires_review:    warnings.length > 0,
       frameworks_checked: countryFrameworks.map((f) => f.id),
-      checked_at:        new Date().toISOString(),
+      checked_at:         new Date().toISOString(),
     };
+
+    // Persist only hard violations (warnings are advisory, not violations)
+    if (violations.length > 0) {
+      this.persistViolations({
+        countryCode: code,
+        policyId:    `COMPLIANCE_CHECK:${params.action}`,
+        actorId:     params.entity_id,
+        actorType:   params.entity_type,
+        violations,
+        metadata: {
+          action:             params.action,
+          entity_type:        params.entity_type,
+          frameworks_checked: result.frameworks_checked,
+          ...(params.amount   ? { amount:   params.amount   } : {}),
+          ...(params.currency ? { currency: params.currency } : {}),
+        },
+      });
+    }
+
+    return result;
   }
 
+  // ── checkAliasCreation ───────────────────────────────────────────────────────
   async checkAliasCreation(params: {
-    user_id:     string;
-    country:     string;
-    alias_type:  string;
+    user_id:      string;
+    country:      string;
+    alias_type:   string;
     is_verified?: boolean;
   }): Promise<AliasCreationCheckResult> {
     const code    = params.country.toUpperCase();
@@ -186,7 +266,7 @@ export class ComplianceEngine {
     const warnings:   string[] = [];
 
     if (!profile || !rules) {
-      return {
+      const result: AliasCreationCheckResult = {
         allowed: false,
         violations: [`Country ${code} is not supported by ALIA`],
         warnings: [],
@@ -196,6 +276,15 @@ export class ComplianceEngine {
         kyc_mandatory: false,
         alias_verification_required: false,
       };
+      this.persistViolations({
+        countryCode: code,
+        policyId:    'ALIAS_CREATION_GATE',
+        actorId:     params.user_id,
+        actorType:   'person',
+        violations:  result.violations,
+        metadata:    { alias_type: params.alias_type },
+      });
+      return result;
     }
 
     const [countResult] = await this.db
@@ -227,18 +316,38 @@ export class ComplianceEngine {
       );
     }
 
-    return {
-      allowed:                   violations.length === 0,
+    const result: AliasCreationCheckResult = {
+      allowed:                     violations.length === 0,
       violations,
       warnings,
-      country_profile:           profile,
-      current_alias_count:       currentCount,
-      max_alias_per_user:        maxAllowed,
-      kyc_mandatory:             rules.rules.kyc_mandatory,
+      country_profile:             profile,
+      current_alias_count:         currentCount,
+      max_alias_per_user:          maxAllowed,
+      kyc_mandatory:               rules.rules.kyc_mandatory,
       alias_verification_required: rules.rules.alias_verification_required,
     };
+
+    if (violations.length > 0) {
+      this.persistViolations({
+        countryCode: code,
+        policyId:    'ALIAS_CREATION_GATE',
+        actorId:     params.user_id,
+        actorType:   'person',
+        violations,
+        metadata: {
+          alias_type:          params.alias_type,
+          is_verified:         params.is_verified ?? false,
+          current_alias_count: currentCount,
+          max_alias_per_user:  maxAllowed,
+          kyc_mandatory:       rules.rules.kyc_mandatory,
+        },
+      });
+    }
+
+    return result;
   }
 
+  // ── generateReport ───────────────────────────────────────────────────────────
   async generateReport(params: {
     institution_id?: string;
     country?:        string;
@@ -254,20 +363,21 @@ export class ComplianceEngine {
       generated_at: new Date().toISOString(),
       params,
       jurisdiction: profile ? {
-        country:              profile.code,
-        name:                 profile.name,
-        regulatory_body:      profile.regulatory_body,
-        status:               profile.status,
+        country:               profile.code,
+        name:                  profile.name,
+        regulatory_body:       profile.regulatory_body,
+        status:                profile.status,
         open_banking_standard: profile.open_banking_standard,
       } : null,
       frameworks,
       summary: {
-        total_frameworks:  frameworks.length,
-        total_requirements: frameworks.reduce((s, f) => s + f.requirements.length, 0),
+        total_frameworks:    frameworks.length,
+        total_requirements:  frameworks.reduce((s, f) => s + f.requirements.length, 0),
       },
     };
   }
 
+  // ── getFrameworks ─────────────────────────────────────────────────────────────
   getFrameworks(country?: string): ComplianceFramework[] {
     const code = country?.toUpperCase();
     return code ? FRAMEWORKS.filter((f) => f.country === code) : FRAMEWORKS;

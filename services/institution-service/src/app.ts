@@ -1,0 +1,41 @@
+import express from 'express';
+import helmet from 'helmet';
+import cors from 'cors';
+import { rateLimit } from 'express-rate-limit';
+import { router } from './routes';
+import { requestIdMiddleware } from '@rald-alia/shared/requestId';
+import { logger } from './index';
+
+export const app = express();
+
+app.use(helmet());
+app.use(cors());
+app.use(express.json());
+app.use(requestIdMiddleware);
+
+app.use(rateLimit({
+  windowMs:       60_000,
+  max:            500,
+  standardHeaders: true,
+  legacyHeaders:  false,
+}));
+
+app.get('/healthz', (_req, res) => {
+  res.json({
+    status:    'ok',
+    service:   'institution-service',
+    version:   '0.1.0',
+    timestamp: new Date().toISOString(),
+  });
+});
+
+app.use('/v1', router);
+
+// Global error handler
+app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+  const status  = err.status ?? 500;
+  const code    = err.code   ?? 'INTERNAL_ERROR';
+  const message = status < 500 ? err.message : 'An unexpected error occurred';
+  if (status >= 500) logger.error({ err }, 'Unhandled error');
+  res.status(status).json({ success: false, error: { code, message } });
+});

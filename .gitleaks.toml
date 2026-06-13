@@ -1,0 +1,49 @@
+# .gitleaks.toml — gitleaks configuration for RALD ALIA
+# Allowlists false positives; default rules catch real secrets.
+
+title = "RALD ALIA Gitleaks Config"
+
+[extend]
+  useDefault = true
+
+[[rules]]
+  id          = "alia-machine-secret"
+  description = "RALD ALIA machine client secret"
+  regex       = '''alia_ms_[0-9a-f]{64}'''
+  tags        = ["secret", "alia"]
+
+[[rules]]
+  id          = "rald-api-key-prod"
+  description = "RALD developer API key (production)"
+  regex       = '''rald_key_prod_[0-9a-f]{48}'''
+  tags        = ["secret", "api-key"]
+
+[[rules]]
+  id          = "rald-api-key-test"
+  description = "RALD developer API key (sandbox)"
+  regex       = '''rald_key_test_[0-9a-f]{48}'''
+  tags        = ["secret", "api-key"]
+
+[allowlist]
+  description = "Allowlisted patterns — test fixtures and example values"
+  paths       = [
+    '''.env\.example''',
+    '''\.env\.\w+\.example''',
+    '''__tests__/''',
+    '''\.test\.ts$''',
+    '''spec\.ts$''',
+    '''SECURITY\.md''',
+    '''threat-model\.md''',
+  ]
+  regexes = [
+    # Placeholder values used in docs and examples
+    '''change-this-.*''',
+    '''your-.*-here''',
+    '''<your.*>''',
+    '''REPLACE_WITH_''',
+    # Test JWTs (all-zero or "test-" prefix)
+    '''test-jwt-secret-''',
+    '''test-machine-jwt-''',
+    # Base64-encoded placeholder in Terraform examples
+    '''dGVzdA==''',
+  ]

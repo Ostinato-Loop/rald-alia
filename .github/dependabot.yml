@@ -1,0 +1,56 @@
+version: 2
+updates:
+  # ── pnpm monorepo (root + all workspaces) ────────────────────────────────────
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+      timezone: Africa/Lagos
+    open-pull-requests-limit: 10
+    groups:
+      opentelemetry:
+        patterns: ["@opentelemetry/*"]
+      aws-sdk:
+        patterns: ["@aws-sdk/*", "aws-*"]
+      express:
+        patterns: ["express", "@types/express", "express-*"]
+      zod:
+        patterns: ["zod"]
+      drizzle:
+        patterns: ["drizzle-*", "@drizzle/*"]
+      kafka:
+        patterns: ["kafkajs", "@confluentinc/*"]
+      testing:
+        patterns: ["vitest", "@vitest/*", "jest", "@jest/*"]
+    ignore:
+      # Pin major versions — upgrade manually after review
+      - dependency-name: "express"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "drizzle-orm"
+        update-types: ["version-update:semver-major"]
+    labels:
+      - "dependencies"
+      - "automated"
+    commit-message:
+      prefix: "chore(deps)"
+      include: scope
+
+  # ── GitHub Actions ────────────────────────────────────────────────────────────
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+      timezone: Africa/Lagos
+    open-pull-requests-limit: 5
+    groups:
+      actions:
+        patterns: ["*"]
+    labels:
+      - "dependencies"
+      - "github-actions"
+    commit-message:
+      prefix: "chore(actions)"

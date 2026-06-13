@@ -1,0 +1,179 @@
+name: Security Scan
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Every Monday at 08:00 UTC
+    - cron: '0 8 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  security-events: write
+  actions: read
+
+jobs:
+  # ── Secret scanning — block committed credentials ───────────────────────────
+  gitleaks:
+    name: Secret Scan (gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0          # full history for gitleaks
+
+      - name: Run gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        # gitleaks.toml in repo root configures allowlists
+
+  # ── Dependency audit — npm audit across all workspaces ─────────────────────
+  npm-audit:
+    name: Dependency Audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: '9'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Audit (fail on high/critical)
+        run: |
+          pnpm audit --audit-level=high --json > audit-report.json || true
+          # Parse and fail if any high/critical vulns found
+          node -e "
+          const r = require('./audit-report.json');
+          const vulns = r.vulnerabilities ?? {};
+          const high = Object.values(vulns).filter(v => ['high','critical'].includes(v.severity));
+          if (high.length > 0) {
+            console.error('HIGH/CRITICAL vulnerabilities found:');
+            high.forEach(v => console.error(\`  \${v.severity.toUpperCase()} \${v.name}: \${v.url}\`));
+            process.exit(1);
+          }
+          console.log('No high/critical vulnerabilities found.');
+          "
+
+      - name: Upload audit report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: npm-audit-report
+          path: audit-report.json
+          retention-days: 30
+
+  # ── CodeQL — static analysis for JS/TS ─────────────────────────────────────
+  codeql:
+    name: CodeQL Analysis
+    runs-on: ubuntu-latest
+    permissions:
+      actions:         read
+      contents:        read
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [javascript-typescript]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+          queries: security-and-quality
+          config: |
+            paths:
+              - services
+              - packages
+            paths-ignore:
+              - '**/*.test.ts'
+              - '**/__tests__/**'
+              - '**/node_modules/**'
+              - '**/dist/**'
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: '9'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: /language:${{ matrix.language }}
+
+  # ── Docker image scan — scan built images for CVEs ─────────────────────────
+  trivy:
+    name: Container Scan (trivy)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [gateway, identity-service, resolution-engine, developer-service]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build image for scanning
+        run: |
+          docker build \
+            -f services/${{ matrix.service }}/Dockerfile \
+            -t alia/${{ matrix.service }}:scan \
+            . \
+          || echo "WARN: build failed — skipping scan for ${{ matrix.service }}"
+
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: alia/${{ matrix.service }}:scan
+          format: sarif
+          output: trivy-${{ matrix.service }}.sarif
+          severity: HIGH,CRITICAL
+          exit-code: '0'        # warn only — don't block on container vulns yet
+          ignore-unfixed: true
+
+      - name: Upload Trivy results to Security tab
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: trivy-${{ matrix.service }}.sarif
+          category: trivy-${{ matrix.service }}
+
+  # ── Summary ─────────────────────────────────────────────────────────────────
+  security-summary:
+    name: Security Summary
+    needs: [gitleaks, npm-audit, codeql]
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Report
+        run: |
+          echo "## Security Scan Results"
+          echo "| Check         | Status |"
+          echo "|---------------|--------|"
+          echo "| Gitleaks      | ${{ needs.gitleaks.result }} |"
+          echo "| npm audit     | ${{ needs.npm-audit.result }} |"
+          echo "| CodeQL        | ${{ needs.codeql.result }} |"
+          
+          if [[ "${{ needs.gitleaks.result }}" == "failure" ]]; then
+            echo "FATAL: gitleaks found committed secrets. Rotate immediately."
+            exit 1
+          fi
+          if [[ "${{ needs.npm-audit.result }}" == "failure" ]]; then
+            echo "FATAL: high/critical npm vulnerabilities found. Run: pnpm audit --fix"
+            exit 1
+          fi

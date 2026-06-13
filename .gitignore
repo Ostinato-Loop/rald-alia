@@ -1,0 +1,72 @@
+# RALD ALIA — root .gitignore
+
+# ── Build outputs ──────────────────────────────────────────────────────────────
+dist/
+build/
+out/
+.next/
+.turbo/
+
+# ── Dependencies ───────────────────────────────────────────────────────────────
+node_modules/
+.pnpm-store/
+
+# ── Environment & Secrets — NEVER COMMIT ──────────────────────────────────────
+.env
+.env.*
+!.env.example
+!.env.*.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+*.cer
+.aws/credentials
+.aws/config
+secrets/
+*secret*
+*credential*
+*password*
+# Machine identity outputs
+.env.machine-secrets.*
+# Terraform state (contains secrets)
+*.tfstate
+*.tfstate.*
+*.tfstate.backup
+.terraform/
+.terraform.lock.hcl
+tfplan
+*.tfplan
+
+# ── IDE ────────────────────────────────────────────────────────────────────────
+.vscode/settings.json
+.vscode/launch.json
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# ── Logs ───────────────────────────────────────────────────────────────────────
+*.log
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+logs/
+
+# ── Test coverage ──────────────────────────────────────────────────────────────
+coverage/
+.nyc_output/
+*.lcov
+
+# ── Docker ─────────────────────────────────────────────────────────────────────
+.docker/
+docker-compose.override.yml
+
+# ── Misc ───────────────────────────────────────────────────────────────────────
+.cache/
+tmp/
+temp/
+*.tmp
+*.temp

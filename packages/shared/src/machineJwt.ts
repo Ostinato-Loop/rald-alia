@@ -1,12 +1,12 @@
 // ALIA Machine Identity JWT
-// Service-to-service authentication. Replaces X-Internal-Secret shared secret.
+// Service-to-service authentication via short-lived signed tokens.
 //
 // Flow:
 //   1. Service starts → calls POST /v1/machine/auth with { service_name, client_secret }
 //   2. identity-service validates, issues machineJwt (24h TTL)
 //   3. Service includes: Authorization: Bearer <machineJwt> on all internal API calls
 //   4. Receiving service verifies machineJwt via verifyMachineJwt()
-//   5. At 24h - 1h: service rotates automatically
+//   5. At 24h - 1h: service rotates automatically via MachineBootstrap
 //
 // Machine JWT payload is distinguishable from user JWT by { type: 'machine' }.
 
@@ -16,7 +16,7 @@ const MACHINE_JWT_SECRET = process.env['MACHINE_JWT_SECRET'];
 const MACHINE_JWT_TTL_SECONDS = 24 * 60 * 60; // 24 hours
 
 export interface MachineJwtPayload {
-  sub:              string;    // machine_id
+  sub:              string;    // machine_id (UUID from machine_identities table)
   type:             'machine';
   service_name:     string;
   allowed_scopes:   string[];
@@ -32,7 +32,7 @@ export interface MachineJwtClaims extends MachineJwtPayload {
 
 export function requireMachineJwtSecret(): string {
   if (!MACHINE_JWT_SECRET) {
-    console.error('[ALIA] FATAL: MACHINE_JWT_SECRET is not set. Cannot issue machine tokens.');
+    console.error('[ALIA] FATAL: MACHINE_JWT_SECRET is not set. Cannot verify machine tokens.');
     process.exit(1);
   }
   return MACHINE_JWT_SECRET;
@@ -76,6 +76,5 @@ export function machineJwtExpiresInMs(claims: MachineJwtClaims): number {
 }
 
 export function shouldRotate(claims: MachineJwtClaims): boolean {
-  // Rotate when < 1 hour remaining
-  return machineJwtExpiresInMs(claims) < 60 * 60 * 1000;
+  return machineJwtExpiresInMs(claims) < 60 * 60 * 1000; // rotate when < 1h remaining
 }

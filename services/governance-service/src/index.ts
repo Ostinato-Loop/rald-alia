@@ -6,6 +6,7 @@ import { app } from './app';
 import { closeDb } from '@rald-alia/db';
 import { CountryGovernanceEngine } from './services/countryGovernance';
 import { startGovernanceConsumers } from './consumers';
+import { startRetentionJob } from './services/retentionEngine';
 
 export const logger = pino({
   name:      'governance-service',
@@ -34,6 +35,18 @@ async function main(): Promise<void> {
     logger.error({ err }, 'governance-service Kafka consumer failed to start — continuing without consumers');
   }
 
+  // Boot retention job — runs immediately then every hour
+  // Non-fatal: governance service remains fully functional if the initial job run fails
+  try {
+    startRetentionJob(
+      parseInt(process.env['RETENTION_JOB_INTERVAL_MS'] ?? String(60 * 60 * 1_000), 10),
+      parseInt(process.env['RETENTION_JOB_BATCH_SIZE']  ?? '50', 10),
+    );
+    logger.info('Retention deletion job scheduled');
+  } catch (err) {
+    logger.error({ err }, 'Retention job failed to start — continuing');
+  }
+
   const server = app.listen(PORT, () => {
     logger.info({ port: PORT }, 'governance-service listening');
   });
@@ -50,7 +63,6 @@ async function main(): Promise<void> {
       }
       process.exit(0);
     });
-    // Force exit if the server hasn't drained within 10s
     setTimeout(() => {
       logger.error('Shutdown timeout exceeded — forcing exit');
       process.exit(1);

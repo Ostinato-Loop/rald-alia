@@ -1,5 +1,5 @@
 // services/governance-service/src/routes/retention.routes.ts
-// Data retention policy management and deletion scheduling.
+// Data retention policy management, deletion scheduling, and job execution.
 
 import { Router, Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
@@ -14,7 +14,6 @@ function asyncHandler(fn: (req: Request, res: Response, next: NextFunction) => P
 }
 
 // ── GET /v1/governance/retention/policies ────────────────────────────────────
-// List all retention policy classes.
 
 retentionRouter.get('/policies', asyncHandler(async (_req, res) => {
   const policies = engine.getPolicies();
@@ -26,26 +25,29 @@ retentionRouter.get('/policies', asyncHandler(async (_req, res) => {
 retentionRouter.get('/policies/:class', asyncHandler(async (req, res) => {
   const policy = engine.getPolicyForClass(req.params.class!);
   if (!policy) {
-    return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: `Retention policy for class '${req.params.class}' not found` } });
+    return res.status(404).json({
+      success: false,
+      error: { code: 'NOT_FOUND', message: `Retention policy for class '${req.params.class}' not found` },
+    });
   }
   res.json({ success: true, data: policy });
 }));
 
 // ── GET /v1/governance/retention/effective-days ──────────────────────────────
-// Returns effective retention days for a data class in a country.
 
 retentionRouter.get('/effective-days', asyncHandler(async (req, res) => {
   const { data_class, country } = req.query;
   if (typeof data_class !== 'string') {
-    return res.status(400).json({ success: false, error: { code: 'VALIDATION_ERROR', message: 'data_class is required' } });
+    return res.status(400).json({
+      success: false,
+      error: { code: 'VALIDATION_ERROR', message: 'data_class is required' },
+    });
   }
   const days = engine.getEffectiveDays(data_class, typeof country === 'string' ? country : undefined);
   res.json({ success: true, data: { data_class, country: country ?? null, effective_days: days } });
 }));
 
 // ── POST /v1/governance/retention/schedule ───────────────────────────────────
-// Schedule a data deletion for an entity.
-// Requires scope: governance:retention:write
 
 const ScheduleSchema = z.object({
   entity_id:    z.string().min(1),
@@ -70,7 +72,6 @@ retentionRouter.post(
 );
 
 // ── GET /v1/governance/retention/scheduled ───────────────────────────────────
-// List all scheduled deletions, optionally filtered by status.
 
 retentionRouter.get('/scheduled', asyncHandler(async (req, res) => {
   const { status, page, limit } = req.query;
@@ -101,5 +102,30 @@ retentionRouter.patch(
   asyncHandler(async (req, res) => {
     await engine.cancel(req.params.id!);
     res.json({ success: true, data: { message: 'Deletion cancelled' } });
+  }),
+);
+
+// ── POST /v1/governance/retention/run ────────────────────────────────────────
+// Trigger the deletion job on-demand (cron / ops use).
+// Returns the full execution summary so callers know exactly what happened.
+// Requires scope: governance:retention:write
+//
+// Optional body:
+//   batch_size  integer 1..500 (default 50)
+
+const RunSchema = z.object({
+  batch_size: z.coerce.number().int().min(1).max(500).default(50),
+});
+
+retentionRouter.post(
+  '/run',
+  requireMachineScope('governance:retention:write'),
+  asyncHandler(async (req, res) => {
+    const parsed = RunSchema.safeParse(req.body ?? {});
+    if (!parsed.success) {
+      return res.status(400).json({ success: false, error: { code: 'VALIDATION_ERROR', details: parsed.error.flatten() } });
+    }
+    const summary = await engine.executeScheduledDeletions(parsed.data.batch_size);
+    res.json({ success: true, data: summary });
   }),
 );

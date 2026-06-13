@@ -1,0 +1,3723 @@
+openapi: 3.1.0
+info:
+  title: RALD ALIA API
+  version: 1.0.0
+  description: |
+    RALD ALIA — Financial Identity & Trust Network for Africa.
+
+    Contract-first unified API specification across all platform domains:
+    Identity, Alias, Directory, Resolution, Routing, Consent, Fraud, Trust,
+    Verification, Merchant, Governance, and Audit.
+
+    All paths are prefixed with /v1. Authentication uses Bearer JWT tokens
+    issued by the identity-service auth endpoints.
+
+servers:
+  - url: /v1
+    description: ALIA API v1
+
+security:
+  - bearerAuth: []
+
+tags:
+  - name: health
+    description: Platform health
+  - name: auth
+    description: Authentication and token management
+  - name: users
+    description: User identity management
+  - name: organizations
+    description: Organisation identity management
+  - name: aliases
+    description: Alias registry — email, phone, username, business handle
+  - name: directory
+    description: Public alias directory lookup (cached, read-optimised)
+  - name: resolution
+    description: Real-time alias resolution to bank routing tokens
+  - name: routing
+    description: Payment routing profile management
+  - name: consent
+    description: Consent grants between subjects and grantees
+  - name: mandates
+    description: Recurring payment mandates
+  - name: permissions
+    description: Permission scope registry and verification
+  - name: fraud
+    description: Real-time fraud scoring and event management
+  - name: trust
+    description: Trust scores, signals, reputation, and history
+  - name: verification
+    description: KYC, document verification, and verifiable credentials
+  - name: merchants
+    description: Merchant registration, verification, and management
+  - name: governance
+    description: Policies, country rules, and compliance checks
+  - name: audit
+    description: Immutable audit log queries
+
+paths:
+
+  # ── Health ─────────────────────────────────────────────────────────────────
+  /healthz:
+    get:
+      operationId: healthCheck
+      tags: [health]
+      summary: Platform health check
+      security: []
+      responses:
+        "200":
+          description: Healthy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
+
+  # ── Auth ───────────────────────────────────────────────────────────────────
+  /auth/register:
+    post:
+      operationId: register
+      tags: [auth]
+      summary: Register a new identity
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegisterRequest"
+      responses:
+        "201":
+          description: Registration initiated — OTP sent to email
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RegisterResponse"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+
+  /auth/verify-email:
+    post:
+      operationId: verifyEmail
+      tags: [auth]
+      summary: Verify email address with OTP and receive tokens
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VerifyEmailRequest"
+      responses:
+        "200":
+          description: Email verified — tokens issued
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TokenPair"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /auth/resend-otp:
+    post:
+      operationId: resendOtp
+      tags: [auth]
+      summary: Resend email verification OTP
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ResendOtpRequest"
+      responses:
+        "200":
+          description: OTP resent
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+
+  /auth/login:
+    post:
+      operationId: login
+      tags: [auth]
+      summary: Authenticate and receive JWT tokens
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+      responses:
+        "200":
+          description: Authenticated — tokens issued
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TokenPair"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /auth/refresh:
+    post:
+      operationId: refreshToken
+      tags: [auth]
+      summary: Rotate refresh token and receive new access token
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RefreshRequest"
+      responses:
+        "200":
+          description: Tokens rotated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TokenPair"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /auth/forgot-password:
+    post:
+      operationId: forgotPassword
+      tags: [auth]
+      summary: Initiate password reset (always returns 200 to prevent enumeration)
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ForgotPasswordRequest"
+      responses:
+        "200":
+          description: Reset OTP sent if email exists
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+
+  /auth/reset-password:
+    post:
+      operationId: resetPassword
+      tags: [auth]
+      summary: Apply new password using OTP
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ResetPasswordRequest"
+      responses:
+        "200":
+          description: Password updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+
+  /auth/me:
+    get:
+      operationId: getMe
+      tags: [auth]
+      summary: Fetch authenticated identity profile
+      responses:
+        "200":
+          description: Authenticated identity
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IdentityProfile"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  # ── Users ──────────────────────────────────────────────────────────────────
+  /users:
+    post:
+      operationId: createUser
+      tags: [users]
+      summary: Create a new user identity
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateUserRequest"
+      responses:
+        "201":
+          description: User created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "409":
+          $ref: "#/components/responses/Conflict"
+
+  /users/{userId}:
+    get:
+      operationId: getUserById
+      tags: [users]
+      summary: Fetch user by ID
+      parameters:
+        - $ref: "#/components/parameters/UserId"
+      responses:
+        "200":
+          description: User
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    patch:
+      operationId: updateUser
+      tags: [users]
+      summary: Update user fields
+      parameters:
+        - $ref: "#/components/parameters/UserId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateUserRequest"
+      responses:
+        "200":
+          description: Updated user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+
+  /users/{userId}/verify:
+    post:
+      operationId: verifyUser
+      tags: [users]
+      summary: Trigger identity verification (BVN, NIN, email, phone)
+      parameters:
+        - $ref: "#/components/parameters/UserId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VerifyUserRequest"
+      responses:
+        "200":
+          description: Verification result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VerificationResult"
+
+  # ── Organizations ─────────────────────────────────────────────────────────
+  /organizations:
+    post:
+      operationId: createOrganization
+      tags: [organizations]
+      summary: Register a new organisation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateOrganizationRequest"
+      responses:
+        "201":
+          description: Organisation created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Organization"
+        "409":
+          $ref: "#/components/responses/Conflict"
+
+  /organizations/{orgId}:
+    get:
+      operationId: getOrganizationById
+      tags: [organizations]
+      summary: Fetch organisation by ID
+      parameters:
+        - $ref: "#/components/parameters/OrgId"
+      responses:
+        "200":
+          description: Organisation
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Organization"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  # ── Aliases ────────────────────────────────────────────────────────────────
+  /aliases:
+    get:
+      operationId: listAliases
+      tags: [aliases]
+      summary: List aliases with optional filters
+      parameters:
+        - name: userId
+          in: query
+          schema:
+            type: string
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: Paginated alias list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaginatedAliases"
+    post:
+      operationId: createAlias
+      tags: [aliases]
+      summary: Register a new alias
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateAliasRequest"
+      responses:
+        "201":
+          description: Alias created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Alias"
+        "409":
+          $ref: "#/components/responses/Conflict"
+
+  /aliases/{aliasId}:
+    get:
+      operationId: getAliasById
+      tags: [aliases]
+      summary: Fetch alias by ID
+      parameters:
+        - $ref: "#/components/parameters/AliasId"
+      responses:
+        "200":
+          description: Alias
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Alias"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    patch:
+      operationId: updateAlias
+      tags: [aliases]
+      summary: Update alias bank routing details
+      parameters:
+        - $ref: "#/components/parameters/AliasId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateAliasRequest"
+      responses:
+        "200":
+          description: Updated alias
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Alias"
+    delete:
+      operationId: deleteAlias
+      tags: [aliases]
+      summary: Soft-delete an alias
+      parameters:
+        - $ref: "#/components/parameters/AliasId"
+      responses:
+        "204":
+          description: Deleted
+
+  # ── Directory ─────────────────────────────────────────────────────────────
+  /directory/lookup:
+    get:
+      operationId: directoryLookup
+      tags: [directory]
+      summary: Lookup alias in the public directory (cached)
+      parameters:
+        - name: alias
+          in: query
+          required: true
+          description: Email, phone number, username, or business handle
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Directory entry
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DirectoryEntry"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /directory/stats:
+    get:
+      operationId: directoryStats
+      tags: [directory]
+      summary: Network directory statistics
+      responses:
+        "200":
+          description: Directory stats
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DirectoryStats"
+
+  /directory/{token}:
+    get:
+      operationId: directoryLookupByToken
+      tags: [directory]
+      summary: Lookup alias by account token
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Directory entry
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DirectoryEntry"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  # ── Resolution ─────────────────────────────────────────────────────────────
+  /resolve:
+    post:
+      operationId: resolveAlias
+      tags: [resolution]
+      summary: Resolve an alias to a bank routing token in real time
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ResolveRequest"
+      responses:
+        "200":
+          description: Resolution result with routing token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ResolutionResult"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+
+  # ── Routing ────────────────────────────────────────────────────────────────
+  /routing/profile/{userId}:
+    get:
+      operationId: getRoutingProfile
+      tags: [routing]
+      summary: Get routing profile for a user
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Routing profile
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RoutingProfile"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /routing/profile:
+    post:
+      operationId: upsertRoutingProfile
+      tags: [routing]
+      summary: Create or update a routing profile
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpsertRoutingProfileRequest"
+      responses:
+        "200":
+          description: Routing profile upserted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RoutingProfile"
+
+  /routing/determine:
+    post:
+      operationId: determineRoute
+      tags: [routing]
+      summary: Determine optimal routing for a transaction
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DetermineRouteRequest"
+      responses:
+        "200":
+          description: Routing decision
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RouteDecision"
+
+  # ── Consent ────────────────────────────────────────────────────────────────
+  /consents/grant:
+    post:
+      operationId: grantConsent
+      tags: [consent]
+      summary: Grant consent from subject to grantee
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GrantConsentRequest"
+      responses:
+        "201":
+          description: Consent granted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConsentResponse"
+
+  /consents:
+    get:
+      operationId: listConsents
+      tags: [consent]
+      summary: List consents with optional filters
+      parameters:
+        - name: subject_id
+          in: query
+          schema:
+            type: string
+        - name: grantee_id
+          in: query
+          schema:
+            type: string
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [active, revoked, expired]
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: Consent list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaginatedConsents"
+
+  /consents/verify:
+    post:
+      operationId: verifyConsent
+      tags: [consent]
+      summary: Verify active consent for a scope set
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VerifyConsentRequest"
+      responses:
+        "200":
+          description: Consent verification result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConsentVerificationResult"
+
+  /consents/{consentId}:
+    get:
+      operationId: getConsentById
+      tags: [consent]
+      summary: Fetch a specific consent record
+      parameters:
+        - $ref: "#/components/parameters/ConsentId"
+      responses:
+        "200":
+          description: Consent
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConsentResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /consents/{consentId}/revoke:
+    post:
+      operationId: revokeConsent
+      tags: [consent]
+      summary: Revoke a consent grant
+      parameters:
+        - $ref: "#/components/parameters/ConsentId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RevokeConsentRequest"
+      responses:
+        "200":
+          description: Consent revoked
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConsentResponse"
+
+  /consents/{consentId}/audit:
+    get:
+      operationId: getConsentAuditTrail
+      tags: [consent]
+      summary: Fetch audit trail for a consent
+      parameters:
+        - $ref: "#/components/parameters/ConsentId"
+      responses:
+        "200":
+          description: Consent audit trail
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ConsentAuditEvent"
+
+  # ── Mandates ───────────────────────────────────────────────────────────────
+  /mandates:
+    get:
+      operationId: listMandates
+      tags: [mandates]
+      summary: List payment mandates
+      parameters:
+        - name: subject_id
+          in: query
+          schema:
+            type: string
+        - name: merchant_id
+          in: query
+          schema:
+            type: string
+        - name: status
+          in: query
+          schema:
+            type: string
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: Mandate list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaginatedMandates"
+    post:
+      operationId: createMandate
+      tags: [mandates]
+      summary: Create a recurring payment mandate
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateMandateRequest"
+      responses:
+        "201":
+          description: Mandate created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MandateResponse"
+
+  /mandates/{mandateId}:
+    get:
+      operationId: getMandateById
+      tags: [mandates]
+      summary: Fetch mandate by ID
+      parameters:
+        - $ref: "#/components/parameters/MandateId"
+      responses:
+        "200":
+          description: Mandate
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MandateResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /mandates/{mandateId}/cancel:
+    post:
+      operationId: cancelMandate
+      tags: [mandates]
+      summary: Cancel a payment mandate
+      parameters:
+        - $ref: "#/components/parameters/MandateId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CancelMandateRequest"
+      responses:
+        "200":
+          description: Mandate cancelled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MandateResponse"
+
+  /mandates/{mandateId}/verify:
+    post:
+      operationId: verifyMandate
+      tags: [mandates]
+      summary: Verify a mandate covers a specific amount
+      parameters:
+        - $ref: "#/components/parameters/MandateId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VerifyMandateRequest"
+      responses:
+        "200":
+          description: Mandate verification result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MandateVerificationResult"
+
+  # ── Permissions ────────────────────────────────────────────────────────────
+  /permissions/scopes:
+    get:
+      operationId: listPermissionScopes
+      tags: [permissions]
+      summary: List all available permission scopes
+      responses:
+        "200":
+          description: Permission scopes
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/PermissionScope"
+
+  /permissions/check:
+    post:
+      operationId: checkPermissions
+      tags: [permissions]
+      summary: Check whether a grantee has specific scopes for a subject
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CheckPermissionsRequest"
+      responses:
+        "200":
+          description: Permission check results
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CheckPermissionsResult"
+
+  # ── Fraud ──────────────────────────────────────────────────────────────────
+  /fraud/score:
+    post:
+      operationId: scoreFraud
+      tags: [fraud]
+      summary: Score an entity for fraud risk in real time
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FraudScoreRequest"
+      responses:
+        "200":
+          description: Fraud score result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FraudScoreResult"
+
+  /fraud/events:
+    get:
+      operationId: listFraudEvents
+      tags: [fraud]
+      summary: List fraud events
+      parameters:
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: Fraud events
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaginatedFraudEvents"
+
+  /fraud/events/{eventId}/resolve:
+    post:
+      operationId: resolveFraudEvent
+      tags: [fraud]
+      summary: Mark a fraud event as resolved
+      parameters:
+        - name: eventId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                resolvedBy:
+                  type: string
+              required: [resolvedBy]
+      responses:
+        "200":
+          description: Event resolved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+
+  # ── Trust ──────────────────────────────────────────────────────────────────
+  /trust/scores/{entityId}:
+    get:
+      operationId: getTrustScore
+      tags: [trust]
+      summary: Get trust score for an entity
+      parameters:
+        - name: entityId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: entity_type
+          in: query
+          required: true
+          schema:
+            $ref: "#/components/schemas/EntityType"
+      responses:
+        "200":
+          description: Trust score
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TrustScore"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /trust/scores/calculate:
+    post:
+      operationId: calculateTrustScore
+      tags: [trust]
+      summary: Calculate trust score from signals
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CalculateTrustScoreRequest"
+      responses:
+        "200":
+          description: Calculated trust score
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TrustScore"
+
+  /trust/scores/signal:
+    post:
+      operationId: ingestTrustSignal
+      tags: [trust]
+      summary: Ingest a trust signal for an entity
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TrustSignalRequest"
+      responses:
+        "200":
+          description: Signal ingested
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+
+  /trust/history/{entityId}:
+    get:
+      operationId: getTrustHistory
+      tags: [trust]
+      summary: Get trust score history for an entity
+      parameters:
+        - name: entityId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: entity_type
+          in: query
+          required: true
+          schema:
+            $ref: "#/components/schemas/EntityType"
+        - name: from
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 100
+      responses:
+        "200":
+          description: Trust history
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TrustHistory"
+
+  /trust/reputation/{entityId}:
+    get:
+      operationId: getReputationProfile
+      tags: [trust]
+      summary: Get reputation profile for an entity
+      parameters:
+        - name: entityId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: entity_type
+          in: query
+          required: true
+          schema:
+            $ref: "#/components/schemas/EntityType"
+      responses:
+        "200":
+          description: Reputation profile
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReputationProfile"
+
+  /trust/reputation/flag:
+    post:
+      operationId: flagEntity
+      tags: [trust]
+      summary: Flag an entity for a compliance or trust reason
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FlagEntityRequest"
+      responses:
+        "200":
+          description: Entity flagged
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+
+  # ── Verification ───────────────────────────────────────────────────────────
+  /verification/kyc/initiate:
+    post:
+      operationId: initiateKyc
+      tags: [verification]
+      summary: Initiate a KYC verification session
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InitiateKycRequest"
+      responses:
+        "201":
+          description: KYC session created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/KycSession"
+
+  /verification/kyc/session/{sessionId}:
+    get:
+      operationId: getKycSession
+      tags: [verification]
+      summary: Get KYC session by ID
+      parameters:
+        - name: sessionId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: KYC session
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/KycSession"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /verification/kyc/status/{entityId}:
+    get:
+      operationId: getKycStatus
+      tags: [verification]
+      summary: Get KYC status for an entity
+      parameters:
+        - name: entityId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: entity_type
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: KYC status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/KycStatus"
+
+  /verification/kyc/verify/bvn:
+    post:
+      operationId: verifyBvn
+      tags: [verification]
+      summary: Verify a Nigerian Bank Verification Number
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VerifyBvnRequest"
+      responses:
+        "200":
+          description: BVN verification result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IdentityVerificationResult"
+
+  /verification/kyc/verify/nin:
+    post:
+      operationId: verifyNin
+      tags: [verification]
+      summary: Verify a Nigerian National Identification Number
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VerifyNinRequest"
+      responses:
+        "200":
+          description: NIN verification result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IdentityVerificationResult"
+
+  /verification/kyc/session/{sessionId}/approve:
+    post:
+      operationId: approveKyc
+      tags: [verification]
+      summary: Approve a KYC session (admin/reviewer)
+      parameters:
+        - name: sessionId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReviewKycRequest"
+      responses:
+        "200":
+          description: KYC approved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/KycSession"
+
+  /verification/kyc/session/{sessionId}/reject:
+    post:
+      operationId: rejectKyc
+      tags: [verification]
+      summary: Reject a KYC session with reason
+      parameters:
+        - name: sessionId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RejectKycRequest"
+      responses:
+        "200":
+          description: KYC rejected
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/KycSession"
+
+  /verification/documents/verify:
+    post:
+      operationId: verifyDocument
+      tags: [verification]
+      summary: Verify an identity document
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VerifyDocumentRequest"
+      responses:
+        "200":
+          description: Document verification result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DocumentVerificationResult"
+
+  /verification/documents/entity/{entityId}:
+    get:
+      operationId: getDocumentsByEntity
+      tags: [verification]
+      summary: Get all verified documents for an entity
+      parameters:
+        - name: entityId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Entity documents
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/DocumentRecord"
+
+  /verification/credentials/issue:
+    post:
+      operationId: issueCredential
+      tags: [verification]
+      summary: Issue a verifiable credential to a subject
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/IssueCredentialRequest"
+      responses:
+        "201":
+          description: Credential issued
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Credential"
+
+  /verification/credentials/entity/{entityId}:
+    get:
+      operationId: getCredentialsByEntity
+      tags: [verification]
+      summary: List credentials held by an entity
+      parameters:
+        - name: entityId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: type
+          in: query
+          schema:
+            type: string
+        - name: valid_only
+          in: query
+          schema:
+            type: boolean
+      responses:
+        "200":
+          description: Entity credentials
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Credential"
+
+  /verification/credentials/verify:
+    post:
+      operationId: verifyCredential
+      tags: [verification]
+      summary: Verify a credential by ID
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                credential_id:
+                  type: string
+                  format: uuid
+              required: [credential_id]
+      responses:
+        "200":
+          description: Credential verification result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CredentialVerificationResult"
+
+  # ── Merchants ─────────────────────────────────────────────────────────────
+  /merchants:
+    get:
+      operationId: listMerchants
+      tags: [merchants]
+      summary: List merchants with filters
+      parameters:
+        - name: owner_id
+          in: query
+          schema:
+            type: string
+        - name: category
+          in: query
+          schema:
+            type: string
+        - name: country
+          in: query
+          schema:
+            type: string
+        - name: verified
+          in: query
+          schema:
+            type: boolean
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: Merchant list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaginatedMerchants"
+    post:
+      operationId: createMerchant
+      tags: [merchants]
+      summary: Register a new merchant
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateMerchantRequest"
+      responses:
+        "201":
+          description: Merchant created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Merchant"
+        "409":
+          $ref: "#/components/responses/Conflict"
+
+  /merchants/handles/check/{handle}:
+    get:
+      operationId: checkMerchantHandle
+      tags: [merchants]
+      summary: Check availability of a merchant handle
+      parameters:
+        - name: handle
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Handle availability
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HandleAvailability"
+
+  /merchants/handles/resolve/{handle}:
+    get:
+      operationId: resolveMerchantHandle
+      tags: [merchants]
+      summary: Resolve a merchant handle to full merchant record
+      parameters:
+        - name: handle
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Merchant
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Merchant"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /merchants/{merchantId}:
+    get:
+      operationId: getMerchantById
+      tags: [merchants]
+      summary: Fetch merchant by ID
+      parameters:
+        - $ref: "#/components/parameters/MerchantId"
+      responses:
+        "200":
+          description: Merchant
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Merchant"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    patch:
+      operationId: updateMerchant
+      tags: [merchants]
+      summary: Update merchant details
+      parameters:
+        - $ref: "#/components/parameters/MerchantId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateMerchantRequest"
+      responses:
+        "200":
+          description: Updated merchant
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Merchant"
+
+  /merchants/{merchantId}/verify:
+    post:
+      operationId: verifyMerchant
+      tags: [merchants]
+      summary: Mark a merchant as verified
+      parameters:
+        - $ref: "#/components/parameters/MerchantId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VerifyMerchantRequest"
+      responses:
+        "200":
+          description: Merchant verified
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Merchant"
+
+  /merchants/{merchantId}/suspend:
+    post:
+      operationId: suspendMerchant
+      tags: [merchants]
+      summary: Suspend a merchant account
+      parameters:
+        - $ref: "#/components/parameters/MerchantId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SuspendMerchantRequest"
+      responses:
+        "200":
+          description: Merchant suspended
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Merchant"
+
+  # ── Governance ────────────────────────────────────────────────────────────
+  /governance/policies:
+    get:
+      operationId: listPolicies
+      tags: [governance]
+      summary: List governance policies
+      parameters:
+        - name: scope
+          in: query
+          schema:
+            type: string
+            enum: [global, country, institution, service]
+        - name: country
+          in: query
+          schema:
+            type: string
+        - name: active
+          in: query
+          schema:
+            type: boolean
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: Policy list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaginatedPolicies"
+    post:
+      operationId: createPolicy
+      tags: [governance]
+      summary: Create a governance policy
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreatePolicyRequest"
+      responses:
+        "201":
+          description: Policy created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Policy"
+
+  /governance/policies/validate:
+    post:
+      operationId: validateAction
+      tags: [governance]
+      summary: Validate an action against active policies
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ValidateActionRequest"
+      responses:
+        "200":
+          description: Policy validation result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PolicyValidationResult"
+
+  /governance/policies/{policyId}:
+    get:
+      operationId: getPolicyById
+      tags: [governance]
+      summary: Fetch policy by ID
+      parameters:
+        - $ref: "#/components/parameters/PolicyId"
+      responses:
+        "200":
+          description: Policy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Policy"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    patch:
+      operationId: updatePolicy
+      tags: [governance]
+      summary: Update policy rules
+      parameters:
+        - $ref: "#/components/parameters/PolicyId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdatePolicyRequest"
+      responses:
+        "200":
+          description: Updated policy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Policy"
+    delete:
+      operationId: deactivatePolicy
+      tags: [governance]
+      summary: Deactivate a policy
+      parameters:
+        - $ref: "#/components/parameters/PolicyId"
+      responses:
+        "200":
+          description: Policy deactivated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+
+  /governance/countries:
+    get:
+      operationId: listCountries
+      tags: [governance]
+      summary: List supported countries and their profiles
+      responses:
+        "200":
+          description: Country list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/CountryProfile"
+
+  /governance/countries/{code}:
+    get:
+      operationId: getCountryProfile
+      tags: [governance]
+      summary: Get country profile by ISO 2-letter code
+      parameters:
+        - name: code
+          in: path
+          required: true
+          schema:
+            type: string
+            minLength: 2
+            maxLength: 2
+            example: NG
+      responses:
+        "200":
+          description: Country profile
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CountryProfile"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /governance/countries/{code}/rules:
+    get:
+      operationId: getCountryRules
+      tags: [governance]
+      summary: Get detailed compliance rules for a country
+      parameters:
+        - name: code
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Country rules
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CountryRules"
+
+  /governance/countries/{code}/compliance-requirements:
+    get:
+      operationId: getComplianceRequirements
+      tags: [governance]
+      summary: Get compliance requirements for a country
+      parameters:
+        - name: code
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Compliance requirements
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ComplianceRequirements"
+
+  /governance/countries/{code}/validate-transaction:
+    post:
+      operationId: validateTransaction
+      tags: [governance]
+      summary: Validate a transaction against country rules
+      parameters:
+        - name: code
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ValidateTransactionRequest"
+      responses:
+        "200":
+          description: Transaction validation result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PolicyValidationResult"
+
+  /governance/compliance/check:
+    post:
+      operationId: runComplianceCheck
+      tags: [governance]
+      summary: Run a compliance check for an entity and action
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ComplianceCheckRequest"
+      responses:
+        "200":
+          description: Compliance check result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ComplianceCheckResult"
+
+  /governance/compliance/reports:
+    get:
+      operationId: getComplianceReports
+      tags: [governance]
+      summary: Generate compliance reports
+      parameters:
+        - name: institution_id
+          in: query
+          schema:
+            type: string
+        - name: country
+          in: query
+          schema:
+            type: string
+        - name: from
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: to
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: type
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Compliance reports
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ComplianceReport"
+
+  /governance/compliance/frameworks:
+    get:
+      operationId: listComplianceFrameworks
+      tags: [governance]
+      summary: List supported compliance frameworks
+      responses:
+        "200":
+          description: Compliance frameworks
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ComplianceFramework"
+
+  # ── Audit ─────────────────────────────────────────────────────────────────
+  /audit/events:
+    get:
+      operationId: listAuditEvents
+      tags: [audit]
+      summary: Query the immutable audit log
+      parameters:
+        - name: actor_id
+          in: query
+          schema:
+            type: string
+        - name: target_id
+          in: query
+          schema:
+            type: string
+        - name: event_type
+          in: query
+          schema:
+            type: string
+        - name: from
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: Audit events
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaginatedAuditEvents"
+
+  /audit/events/{eventId}:
+    get:
+      operationId: getAuditEventById
+      tags: [audit]
+      summary: Fetch a single audit event with checksum
+      parameters:
+        - name: eventId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Audit event
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuditEvent"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+# ────────────────────────────────────────────────────────────────────────────
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  parameters:
+    UserId:
+      name: userId
+      in: path
+      required: true
+      schema:
+        type: string
+    OrgId:
+      name: orgId
+      in: path
+      required: true
+      schema:
+        type: string
+    AliasId:
+      name: aliasId
+      in: path
+      required: true
+      schema:
+        type: string
+    ConsentId:
+      name: consentId
+      in: path
+      required: true
+      schema:
+        type: string
+    MandateId:
+      name: mandateId
+      in: path
+      required: true
+      schema:
+        type: string
+    MerchantId:
+      name: merchantId
+      in: path
+      required: true
+      schema:
+        type: string
+    PolicyId:
+      name: policyId
+      in: path
+      required: true
+      schema:
+        type: string
+    Page:
+      name: page
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+    Limit:
+      name: limit
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 200
+        default: 50
+
+  schemas:
+    # ── Shared ──────────────────────────────────────────────────────────────
+    HealthStatus:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [ok]
+      required: [status]
+
+    SuccessResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+      required: [success]
+
+    MessageResponse:
+      type: object
+      properties:
+        message:
+          type: string
+      required: [message]
+
+    ErrorResponse:
+      type: object
+      properties:
+        code:
+          type: string
+        message:
+          type: string
+        details:
+          type: object
+          additionalProperties: true
+      required: [code, message]
+
+    Pagination:
+      type: object
+      properties:
+        page:
+          type: integer
+        limit:
+          type: integer
+        total:
+          type: integer
+        totalPages:
+          type: integer
+      required: [page, limit, total, totalPages]
+
+    EntityType:
+      type: string
+      enum: [user, business, merchant, developer, bank, institution]
+
+    RiskLevel:
+      type: string
+      enum: [low, medium, high, critical]
+
+    # ── Auth ────────────────────────────────────────────────────────────────
+    RegisterRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          minLength: 8
+        firstName:
+          type: string
+        lastName:
+          type: string
+      required: [email, password, firstName, lastName]
+
+    RegisterResponse:
+      type: object
+      properties:
+        message:
+          type: string
+        userId:
+          type: string
+      required: [message, userId]
+
+    VerifyEmailRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+        otp:
+          type: string
+          minLength: 6
+          maxLength: 6
+      required: [email, otp]
+
+    ResendOtpRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+      required: [email]
+
+    LoginRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+      required: [email, password]
+
+    RefreshRequest:
+      type: object
+      properties:
+        refreshToken:
+          type: string
+      required: [refreshToken]
+
+    ForgotPasswordRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+      required: [email]
+
+    ResetPasswordRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+        otp:
+          type: string
+          minLength: 6
+          maxLength: 6
+        newPassword:
+          type: string
+          minLength: 8
+      required: [email, otp, newPassword]
+
+    TokenPair:
+      type: object
+      properties:
+        accessToken:
+          type: string
+        refreshToken:
+          type: string
+        expiresIn:
+          type: integer
+          description: Access token TTL in seconds
+      required: [accessToken, refreshToken, expiresIn]
+
+    IdentityProfile:
+      type: object
+      properties:
+        id:
+          type: string
+        email:
+          type: string
+          format: email
+        firstName:
+          type: string
+        lastName:
+          type: string
+        isVerified:
+          type: boolean
+        isActive:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+      required: [id, email, firstName, lastName, isVerified, isActive, createdAt]
+
+    # ── Users ────────────────────────────────────────────────────────────────
+    CreateUserRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+        phone:
+          type: string
+        firstName:
+          type: string
+        lastName:
+          type: string
+        bvn:
+          type: string
+          minLength: 11
+          maxLength: 11
+      required: [email, firstName, lastName]
+
+    UpdateUserRequest:
+      type: object
+      properties:
+        phone:
+          type: string
+        firstName:
+          type: string
+        lastName:
+          type: string
+
+    VerifyUserRequest:
+      type: object
+      properties:
+        verificationType:
+          type: string
+          enum: [bvn, nin, email, phone]
+        value:
+          type: string
+      required: [verificationType, value]
+
+    VerificationResult:
+      type: object
+      properties:
+        verified:
+          type: boolean
+        verificationType:
+          type: string
+        verifiedAt:
+          type: string
+          format: date-time
+      required: [verified, verificationType]
+
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+        email:
+          type: string
+          format: email
+        phone:
+          type: string
+        firstName:
+          type: string
+        lastName:
+          type: string
+        isVerified:
+          type: boolean
+        isActive:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+      required: [id, email, firstName, lastName, isVerified, isActive, createdAt, updatedAt]
+
+    # ── Organizations ────────────────────────────────────────────────────────
+    CreateOrganizationRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        handle:
+          type: string
+          pattern: "^[a-zA-Z0-9_-]+$"
+          minLength: 2
+          maxLength: 30
+        email:
+          type: string
+          format: email
+        rcNumber:
+          type: string
+        ownerId:
+          type: string
+      required: [name, handle, email, ownerId]
+
+    Organization:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        handle:
+          type: string
+        email:
+          type: string
+          format: email
+        rcNumber:
+          type: string
+        ownerId:
+          type: string
+        isVerified:
+          type: boolean
+        isActive:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+      required: [id, name, handle, email, ownerId, isVerified, isActive, createdAt]
+
+    # ── Aliases ──────────────────────────────────────────────────────────────
+    AliasType:
+      type: string
+      enum: [email, phone, username, business_handle]
+
+    AliasStatus:
+      type: string
+      enum: [active, suspended, pending, deleted]
+
+    CreateAliasRequest:
+      type: object
+      properties:
+        userId:
+          type: string
+        organizationId:
+          type: string
+        type:
+          $ref: "#/components/schemas/AliasType"
+        value:
+          type: string
+        bankCode:
+          type: string
+        accountToken:
+          type: string
+        accountName:
+          type: string
+        isPrimary:
+          type: boolean
+          default: false
+      required: [type, value, bankCode, accountToken, accountName]
+
+    UpdateAliasRequest:
+      type: object
+      properties:
+        bankCode:
+          type: string
+        accountToken:
+          type: string
+        accountName:
+          type: string
+        isPrimary:
+          type: boolean
+
+    Alias:
+      type: object
+      properties:
+        id:
+          type: string
+        userId:
+          type: string
+        organizationId:
+          type: string
+        type:
+          $ref: "#/components/schemas/AliasType"
+        value:
+          type: string
+        normalizedValue:
+          type: string
+        status:
+          $ref: "#/components/schemas/AliasStatus"
+        bankCode:
+          type: string
+        accountToken:
+          type: string
+        accountName:
+          type: string
+        isPrimary:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+      required: [id, type, value, normalizedValue, status, bankCode, accountToken, accountName, isPrimary, createdAt, updatedAt]
+
+    PaginatedAliases:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/Alias"
+        pagination:
+          $ref: "#/components/schemas/Pagination"
+      required: [data, pagination]
+
+    # ── Directory ────────────────────────────────────────────────────────────
+    DirectoryEntry:
+      type: object
+      properties:
+        aliasId:
+          type: string
+        type:
+          $ref: "#/components/schemas/AliasType"
+        value:
+          type: string
+        status:
+          $ref: "#/components/schemas/AliasStatus"
+        bankCode:
+          type: string
+        accountToken:
+          type: string
+        accountName:
+          type: string
+      required: [aliasId, type, value, status, bankCode, accountToken, accountName]
+
+    DirectoryStats:
+      type: object
+      properties:
+        total:
+          type: integer
+        active:
+          type: integer
+      required: [total, active]
+
+    # ── Resolution ───────────────────────────────────────────────────────────
+    ResolveRequest:
+      type: object
+      properties:
+        alias:
+          type: string
+          description: Email, phone, username, or business handle
+        amount:
+          type: number
+          description: Transaction amount (used for routing optimisation)
+        currency:
+          type: string
+          minLength: 3
+          maxLength: 3
+      required: [alias]
+
+    ResolutionResult:
+      type: object
+      properties:
+        token:
+          type: string
+        routing:
+          type: object
+          properties:
+            destinationBankCode:
+              type: string
+            destinationBankName:
+              type: string
+            accountName:
+              type: string
+          required: [destinationBankCode, destinationBankName, accountName]
+        resolvedAt:
+          type: string
+          format: date-time
+        latencyMs:
+          type: integer
+      required: [token, routing, resolvedAt, latencyMs]
+
+    # ── Routing ──────────────────────────────────────────────────────────────
+    UpsertRoutingProfileRequest:
+      type: object
+      properties:
+        userId:
+          type: string
+        primaryBankCode:
+          type: string
+        fallbackBankCode:
+          type: string
+        routingRules:
+          type: object
+          additionalProperties: true
+      required: [userId, primaryBankCode]
+
+    RoutingProfile:
+      type: object
+      properties:
+        id:
+          type: string
+        userId:
+          type: string
+        primaryBankCode:
+          type: string
+        fallbackBankCode:
+          type: string
+        routingRules:
+          type: object
+          additionalProperties: true
+        isActive:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+      required: [id, userId, primaryBankCode, isActive, createdAt]
+
+    DetermineRouteRequest:
+      type: object
+      properties:
+        userId:
+          type: string
+        amount:
+          type: number
+        currency:
+          type: string
+      required: [userId, amount]
+
+    RouteDecision:
+      type: object
+      properties:
+        destinationBankCode:
+          type: string
+        fallbackBankCode:
+          type: string
+        routingStrategy:
+          type: string
+          enum: [profile, bank_link, default]
+      required: [destinationBankCode, routingStrategy]
+
+    # ── Consent ──────────────────────────────────────────────────────────────
+    GrantConsentRequest:
+      type: object
+      properties:
+        subject_id:
+          type: string
+          format: uuid
+        subject_type:
+          type: string
+          enum: [user, business, merchant]
+        grantee_id:
+          type: string
+          format: uuid
+        grantee_type:
+          type: string
+          enum: [merchant, developer, bank, institution, service]
+        scope:
+          type: array
+          items:
+            type: string
+          minItems: 1
+        purpose:
+          type: string
+        data_classes:
+          type: array
+          items:
+            type: string
+        duration_days:
+          type: integer
+          minimum: 1
+          maximum: 3650
+        conditions:
+          type: object
+          additionalProperties: true
+      required: [subject_id, subject_type, grantee_id, grantee_type, scope, purpose, data_classes]
+
+    ConsentResponse:
+      type: object
+      properties:
+        id:
+          type: string
+        subject_id:
+          type: string
+        grantee_id:
+          type: string
+        scope:
+          type: array
+          items:
+            type: string
+        purpose:
+          type: string
+        status:
+          type: string
+          enum: [active, revoked, expired]
+        granted_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+      required: [id, subject_id, grantee_id, scope, purpose, status, granted_at]
+
+    VerifyConsentRequest:
+      type: object
+      properties:
+        subject_id:
+          type: string
+          format: uuid
+        grantee_id:
+          type: string
+          format: uuid
+        required_scope:
+          type: array
+          items:
+            type: string
+          minItems: 1
+      required: [subject_id, grantee_id, required_scope]
+
+    ConsentVerificationResult:
+      type: object
+      properties:
+        granted:
+          type: boolean
+        missing_scopes:
+          type: array
+          items:
+            type: string
+        consent_id:
+          type: string
+      required: [granted]
+
+    RevokeConsentRequest:
+      type: object
+      properties:
+        reason:
+          type: string
+        revoked_by:
+          type: string
+          format: uuid
+      required: [reason, revoked_by]
+
+    ConsentAuditEvent:
+      type: object
+      properties:
+        event_type:
+          type: string
+        actor_id:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+        metadata:
+          type: object
+          additionalProperties: true
+      required: [event_type, timestamp]
+
+    PaginatedConsents:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/ConsentResponse"
+        pagination:
+          $ref: "#/components/schemas/Pagination"
+      required: [data, pagination]
+
+    # ── Mandates ─────────────────────────────────────────────────────────────
+    CreateMandateRequest:
+      type: object
+      properties:
+        subject_id:
+          type: string
+          format: uuid
+        merchant_id:
+          type: string
+          format: uuid
+        purpose:
+          type: string
+        amount:
+          type: number
+        max_amount:
+          type: number
+        currency:
+          type: string
+          minLength: 3
+          maxLength: 3
+        frequency:
+          type: string
+          enum: [once, daily, weekly, monthly, quarterly, annual, custom]
+        start_date:
+          type: string
+          format: date-time
+        end_date:
+          type: string
+          format: date-time
+      required: [subject_id, merchant_id, purpose, currency, frequency, start_date]
+
+    MandateResponse:
+      type: object
+      properties:
+        id:
+          type: string
+        subject_id:
+          type: string
+        merchant_id:
+          type: string
+        purpose:
+          type: string
+        currency:
+          type: string
+        frequency:
+          type: string
+        status:
+          type: string
+        start_date:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+      required: [id, subject_id, merchant_id, purpose, currency, frequency, status, start_date, created_at]
+
+    CancelMandateRequest:
+      type: object
+      properties:
+        reason:
+          type: string
+        cancelled_by:
+          type: string
+          format: uuid
+      required: [reason, cancelled_by]
+
+    VerifyMandateRequest:
+      type: object
+      properties:
+        amount:
+          type: number
+        currency:
+          type: string
+          minLength: 3
+          maxLength: 3
+      required: [amount, currency]
+
+    MandateVerificationResult:
+      type: object
+      properties:
+        valid:
+          type: boolean
+        reason:
+          type: string
+      required: [valid]
+
+    PaginatedMandates:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/MandateResponse"
+        pagination:
+          $ref: "#/components/schemas/Pagination"
+      required: [data, pagination]
+
+    # ── Permissions ──────────────────────────────────────────────────────────
+    PermissionScope:
+      type: object
+      properties:
+        scope:
+          type: string
+        description:
+          type: string
+        risk:
+          type: string
+          enum: [low, medium, high]
+      required: [scope, description, risk]
+
+    CheckPermissionsRequest:
+      type: object
+      properties:
+        subject_id:
+          type: string
+          format: uuid
+        grantee_id:
+          type: string
+          format: uuid
+        scopes:
+          type: array
+          items:
+            type: string
+          minItems: 1
+      required: [subject_id, grantee_id, scopes]
+
+    CheckPermissionsResult:
+      type: object
+      properties:
+        subject_id:
+          type: string
+        grantee_id:
+          type: string
+        results:
+          type: array
+          items:
+            type: object
+            properties:
+              scope:
+                type: string
+              granted:
+                type: boolean
+              reason:
+                type: string
+            required: [scope, granted]
+      required: [subject_id, grantee_id, results]
+
+    # ── Fraud ────────────────────────────────────────────────────────────────
+    FraudScoreRequest:
+      type: object
+      properties:
+        entityId:
+          type: string
+        entityType:
+          type: string
+          enum: [alias, user, organization]
+        context:
+          type: object
+          properties:
+            newDevice:
+              type: boolean
+            unusualHour:
+              type: boolean
+            foreignIp:
+              type: boolean
+          additionalProperties: true
+      required: [entityId, entityType]
+
+    FraudScoreResult:
+      type: object
+      properties:
+        score:
+          type: integer
+          minimum: 0
+          maximum: 100
+        riskLevel:
+          $ref: "#/components/schemas/RiskLevel"
+        flags:
+          type: array
+          items:
+            type: string
+        recommendation:
+          type: string
+          enum: [allow, review, block]
+      required: [score, riskLevel, flags, recommendation]
+
+    FraudEvent:
+      type: object
+      properties:
+        id:
+          type: string
+        entityId:
+          type: string
+        entityType:
+          type: string
+        riskScore:
+          type: integer
+        riskLevel:
+          $ref: "#/components/schemas/RiskLevel"
+        flags:
+          type: array
+          items:
+            type: string
+        action:
+          type: string
+        resolvedAt:
+          type: string
+          format: date-time
+        resolvedBy:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+      required: [id, entityId, entityType, riskScore, riskLevel, flags, action, createdAt]
+
+    PaginatedFraudEvents:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/FraudEvent"
+        pagination:
+          $ref: "#/components/schemas/Pagination"
+      required: [data, pagination]
+
+    # ── Trust ────────────────────────────────────────────────────────────────
+    TrustScore:
+      type: object
+      properties:
+        entity_id:
+          type: string
+        entity_type:
+          $ref: "#/components/schemas/EntityType"
+        score:
+          type: number
+          minimum: 0
+          maximum: 100
+        level:
+          $ref: "#/components/schemas/RiskLevel"
+        calculated_at:
+          type: string
+          format: date-time
+      required: [entity_id, entity_type, score, level, calculated_at]
+
+    CalculateTrustScoreRequest:
+      type: object
+      properties:
+        entity_id:
+          type: string
+          format: uuid
+        entity_type:
+          $ref: "#/components/schemas/EntityType"
+        signals:
+          type: array
+          items:
+            type: object
+            properties:
+              signal_type:
+                type: string
+              value:
+                type: number
+              weight:
+                type: number
+              source:
+                type: string
+            required: [signal_type, value, source]
+      required: [entity_id, entity_type]
+
+    TrustSignalRequest:
+      type: object
+      properties:
+        entity_id:
+          type: string
+          format: uuid
+        entity_type:
+          $ref: "#/components/schemas/EntityType"
+        signal_type:
+          type: string
+          enum:
+            - verification_completed
+            - verification_failed
+            - transaction_success
+            - transaction_failed
+            - fraud_flagged
+            - dispute_raised
+            - dispute_resolved
+            - account_age
+            - kyc_upgrade
+            - merchant_verified
+            - document_verified
+            - behaviour_anomaly
+            - consent_granted
+            - login_success
+            - login_failed
+        value:
+          type: number
+          minimum: -100
+          maximum: 100
+        source:
+          type: string
+        metadata:
+          type: object
+          additionalProperties: true
+      required: [entity_id, entity_type, signal_type, value, source]
+
+    TrustHistory:
+      type: object
+      properties:
+        entity_id:
+          type: string
+        entity_type:
+          type: string
+        events:
+          type: array
+          items:
+            type: object
+            properties:
+              score:
+                type: number
+              signal_type:
+                type: string
+              timestamp:
+                type: string
+                format: date-time
+      required: [entity_id, entity_type, events]
+
+    ReputationProfile:
+      type: object
+      properties:
+        entity_id:
+          type: string
+        entity_type:
+          type: string
+        reputation_score:
+          type: number
+        flags:
+          type: array
+          items:
+            type: object
+            properties:
+              reason:
+                type: string
+              severity:
+                $ref: "#/components/schemas/RiskLevel"
+              flagged_at:
+                type: string
+                format: date-time
+        is_flagged:
+          type: boolean
+      required: [entity_id, entity_type, reputation_score, flags, is_flagged]
+
+    FlagEntityRequest:
+      type: object
+      properties:
+        entity_id:
+          type: string
+          format: uuid
+        entity_type:
+          type: string
+        reason:
+          type: string
+          enum: [fraud_suspected, policy_violation, aml_flag, dispute_abuse, identity_mismatch, sanctions_match]
+        severity:
+          $ref: "#/components/schemas/RiskLevel"
+        flagged_by:
+          type: string
+        evidence:
+          type: string
+      required: [entity_id, entity_type, reason, severity, flagged_by]
+
+    # ── Verification ─────────────────────────────────────────────────────────
+    KycDocumentType:
+      type: string
+      enum: [bvn, nin, passport, national_id, ghana_card, driving_license, voters_card, utility_bill, bank_statement, cac_certificate, tax_certificate]
+
+    KycProvider:
+      type: string
+      enum: [internal, youverify, smile_id, dojah, prembly]
+
+    InitiateKycRequest:
+      type: object
+      properties:
+        entity_id:
+          type: string
+          format: uuid
+        entity_type:
+          type: string
+          enum: [user, business, merchant]
+        country:
+          type: string
+          minLength: 2
+          maxLength: 2
+        tier:
+          type: string
+          enum: ["1", "2", "3"]
+        documents:
+          type: array
+          items:
+            type: object
+            properties:
+              type:
+                $ref: "#/components/schemas/KycDocumentType"
+              value:
+                type: string
+              issuing_country:
+                type: string
+            required: [type, value]
+          minItems: 1
+        provider:
+          $ref: "#/components/schemas/KycProvider"
+        callback_url:
+          type: string
+          format: uri
+      required: [entity_id, entity_type, country, tier, documents]
+
+    KycSession:
+      type: object
+      properties:
+        id:
+          type: string
+        entity_id:
+          type: string
+        entity_type:
+          type: string
+        status:
+          type: string
+          enum: [pending, in_progress, approved, rejected, expired]
+        tier:
+          type: string
+        country:
+          type: string
+        provider:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+      required: [id, entity_id, entity_type, status, tier, country, created_at, updated_at]
+
+    KycStatus:
+      type: object
+      properties:
+        entity_id:
+          type: string
+        entity_type:
+          type: string
+        current_tier:
+          type: string
+        is_verified:
+          type: boolean
+        sessions:
+          type: array
+          items:
+            $ref: "#/components/schemas/KycSession"
+      required: [entity_id, entity_type, is_verified]
+
+    VerifyBvnRequest:
+      type: object
+      properties:
+        entity_id:
+          type: string
+          format: uuid
+        bvn:
+          type: string
+          minLength: 11
+          maxLength: 11
+        first_name:
+          type: string
+        last_name:
+          type: string
+        date_of_birth:
+          type: string
+          format: date
+      required: [entity_id, bvn]
+
+    VerifyNinRequest:
+      type: object
+      properties:
+        entity_id:
+          type: string
+          format: uuid
+        nin:
+          type: string
+          minLength: 11
+          maxLength: 11
+        first_name:
+          type: string
+        last_name:
+          type: string
+      required: [entity_id, nin]
+
+    IdentityVerificationResult:
+      type: object
+      properties:
+        verified:
+          type: boolean
+        match_score:
+          type: number
+        provider:
+          type: string
+        verified_at:
+          type: string
+          format: date-time
+      required: [verified]
+
+    ReviewKycRequest:
+      type: object
+      properties:
+        reviewed_by:
+          type: string
+        notes:
+          type: string
+      required: [reviewed_by]
+
+    RejectKycRequest:
+      type: object
+      properties:
+        reason:
+          type: string
+        reviewed_by:
+          type: string
+      required: [reason, reviewed_by]
+
+    VerifyDocumentRequest:
+      type: object
+      properties:
+        entity_id:
+          type: string
+          format: uuid
+        document_type:
+          type: string
+          enum: [passport, national_id, driving_license, voters_card, ghana_card, utility_bill, bank_statement, cac_certificate]
+        document_number:
+          type: string
+        issuing_country:
+          type: string
+          minLength: 2
+          maxLength: 2
+        first_name:
+          type: string
+        last_name:
+          type: string
+        date_of_birth:
+          type: string
+          format: date
+        expiry_date:
+          type: string
+          format: date
+        provider:
+          $ref: "#/components/schemas/KycProvider"
+      required: [entity_id, document_type, document_number, issuing_country]
+
+    DocumentVerificationResult:
+      type: object
+      properties:
+        verified:
+          type: boolean
+        document_type:
+          type: string
+        issuing_country:
+          type: string
+        match_score:
+          type: number
+        provider:
+          type: string
+        verified_at:
+          type: string
+          format: date-time
+      required: [verified, document_type, issuing_country]
+
+    DocumentRecord:
+      type: object
+      properties:
+        id:
+          type: string
+        entity_id:
+          type: string
+        document_type:
+          type: string
+        issuing_country:
+          type: string
+        verified:
+          type: boolean
+        verified_at:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+      required: [id, entity_id, document_type, issuing_country, verified, created_at]
+
+    CredentialType:
+      type: string
+      enum:
+        - identity_verified
+        - bvn_verified
+        - nin_verified
+        - business_registered
+        - merchant_certified
+        - developer_certified
+        - kyc_tier_1
+        - kyc_tier_2
+        - kyc_tier_3
+        - alia_certified_developer
+        - alia_certified_merchant
+        - alia_certified_institution
+        - sanctions_clear
+        - pep_clear
+        - tax_compliant
+
+    IssueCredentialRequest:
+      type: object
+      properties:
+        subject_id:
+          type: string
+          format: uuid
+        subject_type:
+          $ref: "#/components/schemas/EntityType"
+        credential_type:
+          $ref: "#/components/schemas/CredentialType"
+        issuer_id:
+          type: string
+        evidence:
+          type: array
+          items:
+            type: string
+        expiry_days:
+          type: integer
+          minimum: 1
+        metadata:
+          type: object
+          additionalProperties: true
+      required: [subject_id, subject_type, credential_type, issuer_id]
+
+    Credential:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        subject_id:
+          type: string
+        subject_type:
+          type: string
+        credential_type:
+          $ref: "#/components/schemas/CredentialType"
+        issuer_id:
+          type: string
+        is_valid:
+          type: boolean
+        issued_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+      required: [id, subject_id, subject_type, credential_type, issuer_id, is_valid, issued_at]
+
+    CredentialVerificationResult:
+      type: object
+      properties:
+        valid:
+          type: boolean
+        credential:
+          $ref: "#/components/schemas/Credential"
+        reason:
+          type: string
+      required: [valid]
+
+    # ── Merchants ────────────────────────────────────────────────────────────
+    MerchantCategory:
+      type: string
+      enum: [retail, food_beverage, healthcare, education, utilities, government, professional_services, transport, entertainment, ecommerce, other]
+
+    CreateMerchantRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        handle:
+          type: string
+          pattern: "^[a-z0-9_-]+$"
+          minLength: 2
+          maxLength: 50
+        owner_id:
+          type: string
+          format: uuid
+        owner_type:
+          type: string
+          enum: [user, business]
+        category:
+          $ref: "#/components/schemas/MerchantCategory"
+        country:
+          type: string
+          minLength: 2
+          maxLength: 2
+        contact_email:
+          type: string
+          format: email
+        contact_phone:
+          type: string
+        business_registration_number:
+          type: string
+        website:
+          type: string
+          format: uri
+        description:
+          type: string
+      required: [name, handle, owner_id, owner_type, category, country, contact_email, contact_phone]
+
+    UpdateMerchantRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        category:
+          $ref: "#/components/schemas/MerchantCategory"
+        contact_email:
+          type: string
+          format: email
+        contact_phone:
+          type: string
+        website:
+          type: string
+          format: uri
+        description:
+          type: string
+
+    VerifyMerchantRequest:
+      type: object
+      properties:
+        verified_by:
+          type: string
+        verification_notes:
+          type: string
+      required: [verified_by]
+
+    SuspendMerchantRequest:
+      type: object
+      properties:
+        reason:
+          type: string
+        suspended_by:
+          type: string
+      required: [reason, suspended_by]
+
+    Merchant:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        handle:
+          type: string
+        owner_id:
+          type: string
+        owner_type:
+          type: string
+        category:
+          $ref: "#/components/schemas/MerchantCategory"
+        country:
+          type: string
+        contact_email:
+          type: string
+          format: email
+        is_verified:
+          type: boolean
+        status:
+          type: string
+          enum: [active, suspended, pending]
+        created_at:
+          type: string
+          format: date-time
+      required: [id, name, handle, owner_id, owner_type, category, country, contact_email, is_verified, status, created_at]
+
+    HandleAvailability:
+      type: object
+      properties:
+        handle:
+          type: string
+        available:
+          type: boolean
+      required: [handle, available]
+
+    PaginatedMerchants:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/Merchant"
+        pagination:
+          $ref: "#/components/schemas/Pagination"
+      required: [data, pagination]
+
+    # ── Governance ───────────────────────────────────────────────────────────
+    PolicyRule:
+      type: object
+      properties:
+        condition:
+          type: string
+        action:
+          type: string
+          enum: [allow, deny, flag, review, throttle, log]
+        priority:
+          type: integer
+          minimum: 1
+          maximum: 1000
+        metadata:
+          type: object
+          additionalProperties: true
+      required: [condition, action, priority]
+
+    CreatePolicyRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        type:
+          type: string
+          enum: [enforcement, compliance, rate_limit, access_control, data_retention, fraud]
+        scope:
+          type: string
+          enum: [global, country, institution, service]
+        country:
+          type: string
+          minLength: 2
+          maxLength: 2
+        institution_id:
+          type: string
+          format: uuid
+        service:
+          type: string
+        rules:
+          type: array
+          items:
+            $ref: "#/components/schemas/PolicyRule"
+        active:
+          type: boolean
+          default: true
+        effective_from:
+          type: string
+          format: date-time
+        effective_until:
+          type: string
+          format: date-time
+      required: [name, type, scope, rules]
+
+    UpdatePolicyRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        rules:
+          type: array
+          items:
+            $ref: "#/components/schemas/PolicyRule"
+        active:
+          type: boolean
+
+    Policy:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        type:
+          type: string
+        scope:
+          type: string
+        rules:
+          type: array
+          items:
+            $ref: "#/components/schemas/PolicyRule"
+        active:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+      required: [id, name, type, scope, rules, active, created_at]
+
+    ValidateActionRequest:
+      type: object
+      properties:
+        action:
+          type: string
+        actor_id:
+          type: string
+          format: uuid
+        actor_type:
+          $ref: "#/components/schemas/EntityType"
+        resource:
+          type: string
+        country:
+          type: string
+        institution_id:
+          type: string
+        context:
+          type: object
+          additionalProperties: true
+      required: [action, actor_id, actor_type, resource]
+
+    PolicyValidationResult:
+      type: object
+      properties:
+        allowed:
+          type: boolean
+        policy_id:
+          type: string
+        action:
+          type: string
+        reason:
+          type: string
+      required: [allowed, action]
+
+    CountryProfile:
+      type: object
+      properties:
+        code:
+          type: string
+        name:
+          type: string
+        currency:
+          type: string
+        supported:
+          type: boolean
+        kyc_tiers:
+          type: array
+          items:
+            type: string
+        transaction_limits:
+          type: object
+          additionalProperties: true
+      required: [code, name, currency, supported]
+
+    CountryRules:
+      type: object
+      properties:
+        code:
+          type: string
+        rules:
+          type: array
+          items:
+            type: object
+            properties:
+              rule_type:
+                type: string
+              value:
+                type: string
+              description:
+                type: string
+      required: [code, rules]
+
+    ComplianceRequirements:
+      type: object
+      properties:
+        country:
+          type: string
+        requirements:
+          type: array
+          items:
+            type: object
+            properties:
+              requirement:
+                type: string
+              mandatory:
+                type: boolean
+              description:
+                type: string
+      required: [country, requirements]
+
+    ValidateTransactionRequest:
+      type: object
+      properties:
+        amount:
+          type: number
+        currency:
+          type: string
+          minLength: 3
+          maxLength: 3
+        alias_type:
+          type: string
+        initiator_id:
+          type: string
+        recipient_id:
+          type: string
+      required: [amount, currency, alias_type, initiator_id, recipient_id]
+
+    ComplianceCheckRequest:
+      type: object
+      properties:
+        entity_id:
+          type: string
+          format: uuid
+        entity_type:
+          type: string
+          enum: [user, business, merchant, bank, developer]
+        country:
+          type: string
+          minLength: 2
+          maxLength: 2
+        action:
+          type: string
+        amount:
+          type: number
+        currency:
+          type: string
+          minLength: 3
+          maxLength: 3
+      required: [entity_id, entity_type, country, action]
+
+    ComplianceCheckResult:
+      type: object
+      properties:
+        compliant:
+          type: boolean
+        checks:
+          type: array
+          items:
+            type: object
+            properties:
+              check:
+                type: string
+              passed:
+                type: boolean
+              reason:
+                type: string
+      required: [compliant, checks]
+
+    ComplianceReport:
+      type: object
+      properties:
+        id:
+          type: string
+        type:
+          type: string
+        country:
+          type: string
+        period_from:
+          type: string
+          format: date
+        period_to:
+          type: string
+          format: date
+        generated_at:
+          type: string
+          format: date-time
+        data:
+          type: object
+          additionalProperties: true
+      required: [id, type, generated_at]
+
+    ComplianceFramework:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        countries:
+          type: array
+          items:
+            type: string
+      required: [id, name]
+
+    PaginatedPolicies:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/Policy"
+        pagination:
+          $ref: "#/components/schemas/Pagination"
+      required: [data, pagination]
+
+    # ── Audit ────────────────────────────────────────────────────────────────
+    AuditEvent:
+      type: object
+      properties:
+        id:
+          type: string
+        event_type:
+          type: string
+        actor_id:
+          type: string
+        actor_type:
+          type: string
+        target_id:
+          type: string
+        target_type:
+          type: string
+        metadata:
+          type: object
+          additionalProperties: true
+        ip_address:
+          type: string
+        user_agent:
+          type: string
+        checksum:
+          type: string
+          description: SHA-256 checksum for tamper detection
+        created_at:
+          type: string
+          format: date-time
+      required: [id, event_type, metadata, checksum, created_at]
+
+    PaginatedAuditEvents:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/AuditEvent"
+        pagination:
+          $ref: "#/components/schemas/Pagination"
+      required: [data, pagination]
+
+  responses:
+    BadRequest:
+      description: Bad request
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    Unauthorized:
+      description: Unauthorized — missing or invalid Bearer token
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    Forbidden:
+      description: Forbidden — insufficient permissions
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    Conflict:
+      description: Resource already exists
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    ValidationError:
+      description: Validation error
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    TooManyRequests:
+      description: Rate limit exceeded
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"

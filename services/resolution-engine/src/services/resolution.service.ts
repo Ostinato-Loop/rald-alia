@@ -1,5 +1,5 @@
 import { eq, and, isNull } from 'drizzle-orm';
-import { getDb, aliases, bankLinks } from '@rald-alia/db';
+import { getDb, aliases, bankLinks, aliasResolutionLog } from '@rald-alia/db';
 import { publishEvent, KAFKA_TOPICS } from '@rald-alia/kafka';
 import { generateId, normalizeAlias, ResolutionFailedError, getBankName } from '@rald-alia/shared';
 import { signRoutingToken, verifyRoutingToken, type RoutingTokenClaims } from '@rald-alia/shared/routingToken';
@@ -15,8 +15,10 @@ if (!REDIS_URL) {
 }
 const redis = new Redis(REDIS_URL);
 
-// Cached resolution — stores ONLY routing metadata (no account_token)
+// Cached resolution — stores routing metadata (no account_token, which is never cached)
 type CachedResolution = {
+  aliasId:             string;   // aliases.id — needed for audit log on cache hits
+  countryCode:         string;   // needed for audit log
   destinationBankCode: string;
   destinationBankName: string;
   accountName:         string;
@@ -38,12 +40,13 @@ export class ResolutionService {
     ipAddress?:     string;
   }): Promise<{
     routing_token:  string;            // signed JWT — caller presents this to /verify
-    routing:        CachedResolution;  // public routing metadata (no credentials)
+    routing:        Omit<CachedResolution, 'aliasId' | 'countryCode'>; // public metadata only
     resolution_id:  string;
     resolved_at:    string;
     from_cache:     boolean;
   }> {
     const resolutionId = generateId('res');
+    const startTime    = Date.now();
     const type         = this.detectType(data.alias);
     const normalized   = normalizeAlias(type, data.alias);
     const cacheKey     = `resolve:${normalized}`;
@@ -61,87 +64,141 @@ export class ResolutionService {
       },
     }).catch(() => {});
 
-    let routing: CachedResolution;
+    let cachedResolution: CachedResolution;
     let accountToken: string;
     let fromCache = false;
 
-    // ── Cache path ────────────────────────────────────────────────────────────
-    const cachedRouting = await redis.get(cacheKey);
-    if (cachedRouting) {
-      routing   = JSON.parse(cachedRouting) as CachedResolution;
-      fromCache = true;
-      // account_token is never cached — always fetched fresh on cache hit
-      accountToken = await this.fetchAccountToken(normalized);
-    } else {
-      // ── DB path ─────────────────────────────────────────────────────────────
-      const [entry] = await this.db
-        .select()
-        .from(aliases)
-        .where(
-          and(
-            eq(aliases.normalizedValue, normalized),
-            eq(aliases.status, 'active'),
-            isNull(aliases.deletedAt),
-          ),
-        )
-        .limit(1);
+    try {
+      // ── Cache path ──────────────────────────────────────────────────────────
+      const rawCached = await redis.get(cacheKey);
+      if (rawCached) {
+        cachedResolution = JSON.parse(rawCached) as CachedResolution;
+        fromCache        = true;
+        // account_token is never cached — always fetched fresh on cache hit
+        accountToken = await this.fetchAccountToken(normalized);
+      } else {
+        // ── DB path ─────────────────────────────────────────────────────────
+        const [entry] = await this.db
+          .select()
+          .from(aliases)
+          .where(
+            and(
+              eq(aliases.normalizedValue, normalized),
+              eq(aliases.status, 'active'),
+              isNull(aliases.deletedAt),
+            ),
+          )
+          .limit(1);
 
-      if (!entry) throw new ResolutionFailedError(data.alias);
+        if (!entry) {
+          // Log the not-found outcome before throwing
+          this.writeAuditLog({
+            aliasId:         'unknown',
+            requestId:       resolutionId,
+            initiatorId:     data.initiatingBank,
+            destinationBank: null,
+            routingStrategy: 'primary',
+            latencyMs:       Date.now() - startTime,
+            status:          'not_found',
+            failureReason:   `Alias not found: ${data.alias}`,
+            countryCode:     null,
+          });
+          throw new ResolutionFailedError(data.alias);
+        }
 
-      accountToken = entry.accountToken;
+        accountToken = entry.accountToken;
 
-      let destinationBankName = getBankName(entry.bankCode);
-      const [bankLink] = await this.db
-        .select({ bankName: bankLinks.bankName })
-        .from(bankLinks)
-        .where(and(eq(bankLinks.accountToken, entry.accountToken), eq(bankLinks.isActive, true)))
-        .limit(1);
-      if (bankLink?.bankName) destinationBankName = bankLink.bankName;
+        let destinationBankName = getBankName(entry.bankCode);
+        const [bankLink] = await this.db
+          .select({ bankName: bankLinks.bankName })
+          .from(bankLinks)
+          .where(and(eq(bankLinks.accountToken, entry.accountToken), eq(bankLinks.isActive, true)))
+          .limit(1);
+        if (bankLink?.bankName) destinationBankName = bankLink.bankName;
 
-      routing = {
-        destinationBankCode: entry.bankCode,
-        destinationBankName,
-        accountName:         entry.accountName,
-        resolvedAt:          new Date().toISOString(),
+        cachedResolution = {
+          aliasId:             entry.id,
+          countryCode:         entry.countryCode,
+          destinationBankCode: entry.bankCode,
+          destinationBankName,
+          accountName:         entry.accountName,
+          resolvedAt:          new Date().toISOString(),
+        };
+
+        // Cache only routing metadata — never the accountToken, aliasId is safe
+        await redis.setex(cacheKey, CACHE_TTL_SECONDS, JSON.stringify(cachedResolution));
+      }
+
+      // Store accountToken separately, keyed by resolutionId (60s TTL = same as routing JWT)
+      await redis.setex(
+        `${ACCOUNT_TOKEN_PREFIX}${resolutionId}`,
+        CACHE_TTL_SECONDS,
+        accountToken,
+      );
+
+      // Issue routing JWT — safe to return to caller
+      const routingJwt = signRoutingToken({
+        resolution_id:         resolutionId,
+        transaction_ref:       data.transactionRef,
+        destination_bank_code: cachedResolution.destinationBankCode,
+        destination_bank_name: cachedResolution.destinationBankName,
+        account_name:          cachedResolution.accountName,
+        initiating_bank:       data.initiatingBank,
+        resolution_cache_key:  cacheKey,
+        resolved_at:           cachedResolution.resolvedAt,
+      });
+
+      // ── Audit log — fire and forget ────────────────────────────────────────
+      this.writeAuditLog({
+        aliasId:         cachedResolution.aliasId,
+        requestId:       resolutionId,
+        initiatorId:     data.initiatingBank,
+        destinationBank: cachedResolution.destinationBankCode,
+        routingStrategy: fromCache ? 'cache' : 'primary',
+        latencyMs:       Date.now() - startTime,
+        status:          'completed',
+        failureReason:   null,
+        countryCode:     cachedResolution.countryCode,
+      });
+
+      publishEvent(KAFKA_TOPICS.RESOLUTION_COMPLETED, {
+        eventType: KAFKA_TOPICS.RESOLUTION_COMPLETED,
+        payload: {
+          resolutionId,
+          alias:               normalized,
+          destinationBankCode: cachedResolution.destinationBankCode,
+          success:             true,
+          fromCache,
+        },
+      }).catch(() => {});
+
+      const { aliasId: _a, countryCode: _c, ...publicRouting } = cachedResolution;
+      return {
+        routing_token: routingJwt,
+        routing:       publicRouting,
+        resolution_id: resolutionId,
+        resolved_at:   cachedResolution.resolvedAt,
+        from_cache:    fromCache,
       };
 
-      // Cache only public routing metadata — never the accountToken
-      await redis.setex(cacheKey, CACHE_TTL_SECONDS, JSON.stringify(routing));
+    } catch (err: any) {
+      // Re-throw errors already handled (ResolutionFailedError already logged above)
+      if (err?.code === 'ALIAS_NOT_FOUND' || err?.name === 'ResolutionFailedError') throw err;
+
+      // Unexpected error — log and re-throw
+      this.writeAuditLog({
+        aliasId:         'unknown',
+        requestId:       resolutionId,
+        initiatorId:     data.initiatingBank,
+        destinationBank: null,
+        routingStrategy: 'primary',
+        latencyMs:       Date.now() - startTime,
+        status:          'error',
+        failureReason:   err?.message ?? 'Internal error',
+        countryCode:     null,
+      });
+      throw err;
     }
-
-    // Store accountToken separately, keyed by resolutionId (60s TTL = same as routing JWT)
-    await redis.setex(`${ACCOUNT_TOKEN_PREFIX}${resolutionId}`, CACHE_TTL_SECONDS, accountToken);
-
-    // Issue routing JWT — safe to return to caller
-    const routingJwt = signRoutingToken({
-      resolution_id:         resolutionId,
-      transaction_ref:       data.transactionRef,
-      destination_bank_code: routing.destinationBankCode,
-      destination_bank_name: routing.destinationBankName,
-      account_name:          routing.accountName,
-      initiating_bank:       data.initiatingBank,
-      resolution_cache_key:  cacheKey,
-      resolved_at:           routing.resolvedAt,
-    });
-
-    publishEvent(KAFKA_TOPICS.RESOLUTION_COMPLETED, {
-      eventType: KAFKA_TOPICS.RESOLUTION_COMPLETED,
-      payload: {
-        resolutionId,
-        alias:               normalized,
-        destinationBankCode: routing.destinationBankCode,
-        success:             true,
-        fromCache,
-      },
-    }).catch(() => {});
-
-    return {
-      routing_token: routingJwt,
-      routing,
-      resolution_id: resolutionId,
-      resolved_at:   routing.resolvedAt,
-      from_cache:    fromCache,
-    };
   }
 
   // Called by /verify — institution presents routing_token, gets accountToken
@@ -152,10 +209,14 @@ export class ResolutionService {
     // Will throw with ROUTING_TOKEN_EXPIRED or ROUTING_TOKEN_INVALID if invalid
     const claims = verifyRoutingToken(routingToken);
 
-    const accountToken = await redis.get(`${ACCOUNT_TOKEN_PREFIX}${claims.resolution_id}`);
+    const accountToken = await redis.get(
+      `${ACCOUNT_TOKEN_PREFIX}${claims.resolution_id}`,
+    );
     if (!accountToken) {
       throw Object.assign(
-        new Error('Routing token has expired or was already consumed. Re-resolve the alias.'),
+        new Error(
+          'Routing token has expired or was already consumed. Re-resolve the alias.',
+        ),
         { status: 410, code: 'ROUTING_TOKEN_CONSUMED' },
       );
     }
@@ -166,16 +227,62 @@ export class ResolutionService {
     return { claims, account_token: accountToken };
   }
 
-  // ── Private ───────────────────────────────────────────────────────────────
+  // ── Private helpers ──────────────────────────────────────────────────────
 
   private async fetchAccountToken(normalized: string): Promise<string> {
     const [entry] = await this.db
       .select({ accountToken: aliases.accountToken })
       .from(aliases)
-      .where(and(eq(aliases.normalizedValue, normalized), eq(aliases.status, 'active'), isNull(aliases.deletedAt)))
+      .where(
+        and(
+          eq(aliases.normalizedValue, normalized),
+          eq(aliases.status, 'active'),
+          isNull(aliases.deletedAt),
+        ),
+      )
       .limit(1);
     if (!entry) throw new ResolutionFailedError(normalized);
     return entry.accountToken;
+  }
+
+  /**
+   * Write one row to alias_resolution_log.
+   * Fire-and-forget — never throws; errors are logged to console only.
+   * We do NOT store the accountToken here — that credential stays in Redis only.
+   */
+  private writeAuditLog(params: {
+    aliasId:         string;
+    requestId:       string;
+    initiatorId:     string;
+    destinationBank: string | null;
+    routingStrategy: string;
+    latencyMs:       number;
+    status:          'completed' | 'not_found' | 'blocked' | 'error';
+    failureReason:   string | null;
+    countryCode:     string | null;
+  }): void {
+    this.db
+      .insert(aliasResolutionLog)
+      .values({
+        id:              generateId('arl'),
+        aliasId:         params.aliasId,
+        requestId:       params.requestId,
+        initiatorId:     params.initiatorId,
+        initiatorType:   'institution',
+        resolvedToken:   null,       // security: account_token never persisted to DB
+        destinationBank: params.destinationBank ?? undefined,
+        routingStrategy: params.routingStrategy,
+        latencyMs:       params.latencyMs,
+        fraudScore:      null,
+        fraudAction:     null,
+        status:          params.status,
+        failureReason:   params.failureReason ?? undefined,
+        countryCode:     params.countryCode ?? undefined,
+      })
+      .then(() => {})
+      .catch((err: unknown) => {
+        console.error('[resolution-engine] Failed to write audit log row:', err);
+      });
   }
 
   private detectType(alias: string): 'email' | 'phone' | 'username' | 'business_handle' {

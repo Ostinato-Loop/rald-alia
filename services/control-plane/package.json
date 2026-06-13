@@ -1,0 +1,36 @@
+{
+  "name": "@rald-alia/control-plane",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "build":     "tsc",
+    "dev":       "ts-node-dev --respawn --transpile-only src/index.ts",
+    "start":     "node dist/index.js",
+    "typecheck": "tsc --noEmit",
+    "test":      "vitest run",
+    "test:coverage": "vitest run --coverage"
+  },
+  "dependencies": {
+    "@rald-alia/shared": "workspace:*",
+    "@rald-alia/db":     "workspace:*",
+    "express":           "^5.0.1",
+    "zod":               "^3.24.1",
+    "dotenv":            "^16.4.7",
+    "helmet":            "^8.0.0",
+    "cors":              "^2.8.5",
+    "express-rate-limit": "^7.5.0",
+    "pino":              "^9.6.0",
+    "pino-http":         "^10.4.0",
+    "uuid":              "^11.0.0"
+  },
+  "devDependencies": {
+    "@types/express":   "^5.0.0",
+    "@types/cors":      "^2.8.17",
+    "@types/node":      "^22.0.0",
+    "@types/uuid":      "^10.0.0",
+    "ts-node-dev":      "^2.0.0",
+    "typescript":       "^5.7.3",
+    "vitest":           "^2.1.8",
+    "@vitest/coverage-v8": "^2.1.8"
+  }
+}

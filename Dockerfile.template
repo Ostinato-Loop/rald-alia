@@ -1,0 +1,64 @@
+# RALD ALIA — Standard multi-stage Dockerfile
+# Usage: Replace SERVICE_NAME with the actual service name
+# Example: identity-service, alias-service, resolution-engine, etc.
+#
+# Build context must be the MONOREPO ROOT (not the service directory):
+#   docker build -f services/identity-service/Dockerfile .
+
+ARG SERVICE_NAME=identity-service
+ARG SERVICE_PORT=3001
+
+FROM node:20-alpine AS base
+RUN corepack enable && corepack prepare pnpm@9 --activate
+WORKDIR /app
+
+# ── Builder stage ──────────────────────────────────────────────────────────────
+FROM base AS builder
+
+# Copy workspace manifest files first (layer cache)
+COPY pnpm-workspace.yaml package.json pnpm-lock.yaml ./
+
+# Copy all packages (shared deps built first)
+COPY packages/shared  ./packages/shared
+COPY packages/kafka   ./packages/kafka
+COPY packages/db      ./packages/db
+COPY packages/sdk     ./packages/sdk
+
+# Copy target service
+COPY services/${SERVICE_NAME} ./services/${SERVICE_NAME}
+
+# Install all deps (workspace-aware)
+RUN pnpm install --frozen-lockfile
+
+# Build packages in dependency order
+RUN pnpm --filter @rald-alia/shared build
+RUN pnpm --filter @rald-alia/kafka  build
+RUN pnpm --filter @rald-alia/db     build
+RUN pnpm --filter @rald-alia/sdk    build || true
+
+# Build the target service
+RUN pnpm --filter @rald-alia/${SERVICE_NAME} build
+
+# ── Runner stage ───────────────────────────────────────────────────────────────
+FROM node:20-alpine AS runner
+
+WORKDIR /app
+ENV NODE_ENV=production
+
+# Copy compiled output and deps
+COPY --from=builder /app/services/${SERVICE_NAME}/dist        ./dist
+COPY --from=builder /app/services/${SERVICE_NAME}/package.json ./package.json
+COPY --from=builder /app/node_modules                         ./node_modules
+
+# Non-root user for security
+RUN addgroup --system --gid 1001 rald && \
+    adduser  --system --uid 1001 --ingroup rald rald
+USER rald
+
+EXPOSE ${SERVICE_PORT}
+
+# Health check — all ALIA services expose GET /health
+HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
+  CMD wget -qO- http://localhost:${SERVICE_PORT}/health || exit 1
+
+CMD ["node", "dist/index.js"]

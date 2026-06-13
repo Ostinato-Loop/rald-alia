@@ -1,0 +1,476 @@
+version: '3.9'
+
+# RALD ALIA — Canonical docker-compose
+# Merged from GitHub + GitLab implementations
+# All 18 services + infrastructure
+# Run: docker-compose up -d
+
+networks:
+  alia-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  redis_data:
+  kafka_data:
+
+services:
+
+  # ── Infrastructure ──────────────────────────────────────────────────────────
+
+  postgres:
+    image: postgres:16-alpine
+    networks: [alia-network]
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-raldalia}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-raldalia_secret}
+      POSTGRES_DB: ${POSTGRES_DB:-raldalia}
+    ports:
+      - '5432:5432'
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-raldalia}']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    networks: [alia-network]
+    ports:
+      - '6379:6379'
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-raldalia_redis}
+    healthcheck:
+      test: ['CMD', 'redis-cli', '-a', '${REDIS_PASSWORD:-raldalia_redis}', 'ping']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.6.0
+    networks: [alia-network]
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    ports:
+      - '2181:2181'
+    restart: unless-stopped
+
+  kafka:
+    image: confluentinc/cp-kafka:7.6.0
+    networks: [alia-network]
+    depends_on:
+      - zookeeper
+    ports:
+      - '9092:9092'
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'true'
+      KAFKA_LOG_RETENTION_HOURS: 168
+    volumes:
+      - kafka_data:/var/lib/kafka/data
+    healthcheck:
+      test: ['CMD', 'kafka-topics', '--bootstrap-server', 'localhost:9092', '--list']
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    restart: unless-stopped
+
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    networks: [alia-network]
+    ports:
+      - '8080:8080'
+    environment:
+      KAFKA_CLUSTERS_0_NAME: alia-local
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
+    depends_on:
+      - kafka
+    restart: unless-stopped
+
+  # ── API Gateway (port 3000) ─────────────────────────────────────────────────
+
+  gateway:
+    build:
+      context: .
+      dockerfile: services/gateway/Dockerfile
+    networks: [alia-network]
+    ports:
+      - '3000:3000'
+    environment:
+      PORT: 3000
+      NODE_ENV: ${NODE_ENV:-production}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-raldalia}:${POSTGRES_PASSWORD:-raldalia_secret}@postgres:5432/${POSTGRES_DB:-raldalia}
+      REDIS_URL: redis://:${REDIS_PASSWORD:-raldalia_redis}@redis:6379
+      IDENTITY_SERVICE_URL: http://identity-service:3001
+      ALIAS_SERVICE_URL: http://alias-service:3002
+      DIRECTORY_SERVICE_URL: http://directory-service:3003
+      RESOLUTION_ENGINE_URL: http://resolution-engine:3004
+      ROUTING_SERVICE_URL: http://routing-service:3005
+      TRUST_SERVICE_URL: http://trust-service:3011
+      CONSENT_SERVICE_URL: http://consent-service:3010
+      MACHINE_JWT_SECRET: ${MACHINE_JWT_SECRET}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ── Core Identity Services ──────────────────────────────────────────────────
+
+  identity-service:
+    build:
+      context: .
+      dockerfile: services/identity-service/Dockerfile
+    networks: [alia-network]
+    ports:
+      - '3001:3001'
+    environment:
+      PORT: 3001
+      NODE_ENV: ${NODE_ENV:-production}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-raldalia}:${POSTGRES_PASSWORD:-raldalia_secret}@postgres:5432/${POSTGRES_DB:-raldalia}
+      REDIS_URL: redis://:${REDIS_PASSWORD:-raldalia_redis}@redis:6379
+      KAFKA_BROKERS: kafka:9092
+      JWT_SECRET: ${JWT_SECRET}
+      MACHINE_JWT_SECRET: ${MACHINE_JWT_SECRET}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    restart: unless-stopped
+
+  alias-service:
+    build:
+      context: .
+      dockerfile: services/alias-service/Dockerfile
+    networks: [alia-network]
+    ports:
+      - '3002:3002'
+    environment:
+      PORT: 3002
+      NODE_ENV: ${NODE_ENV:-production}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-raldalia}:${POSTGRES_PASSWORD:-raldalia_secret}@postgres:5432/${POSTGRES_DB:-raldalia}
+      REDIS_URL: redis://:${REDIS_PASSWORD:-raldalia_redis}@redis:6379
+      KAFKA_BROKERS: kafka:9092
+      MACHINE_JWT_SECRET: ${MACHINE_JWT_SECRET}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    restart: unless-stopped
+
+  directory-service:
+    build:
+      context: .
+      dockerfile: services/directory-service/Dockerfile
+    networks: [alia-network]
+    ports:
+      - '3003:3003'
+    environment:
+      PORT: 3003
+      NODE_ENV: ${NODE_ENV:-production}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-raldalia}:${POSTGRES_PASSWORD:-raldalia_secret}@postgres:5432/${POSTGRES_DB:-raldalia}
+      REDIS_URL: redis://:${REDIS_PASSWORD:-raldalia_redis}@redis:6379
+      MACHINE_JWT_SECRET: ${MACHINE_JWT_SECRET}
+      CACHE_TTL_SECONDS: ${CACHE_TTL_SECONDS:-300}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  resolution-engine:
+    build:
+      context: .
+      dockerfile: services/resolution-engine/Dockerfile
+    networks: [alia-network]
+    ports:
+      - '3004:3004'
+    environment:
+      PORT: 3004
+      NODE_ENV: ${NODE_ENV:-production}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-raldalia}:${POSTGRES_PASSWORD:-raldalia_secret}@postgres:5432/${POSTGRES_DB:-raldalia}
+      REDIS_URL: redis://:${REDIS_PASSWORD:-raldalia_redis}@redis:6379
+      KAFKA_BROKERS: kafka:9092
+      MACHINE_JWT_SECRET: ${MACHINE_JWT_SECRET}
+      DIRECTORY_SERVICE_URL: http://directory-service:3003
+      TRUST_SERVICE_URL: http://trust-service:3011
+      CONSENT_SERVICE_URL: http://consent-service:3010
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    restart: unless-stopped
+
+  routing-service:
+    build:
+      context: .
+      dockerfile: services/routing-service/Dockerfile
+    networks: [alia-network]
+    ports:
+      - '3005:3005'
+    environment:
+      PORT: 3005
+      NODE_ENV: ${NODE_ENV:-production}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-raldalia}:${POSTGRES_PASSWORD:-raldalia_secret}@postgres:5432/${POSTGRES_DB:-raldalia}
+      REDIS_URL: redis://:${REDIS_PASSWORD:-raldalia_redis}@redis:6379
+      MACHINE_JWT_SECRET: ${MACHINE_JWT_SECRET}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  fraud-service:
+    build:
+      context: .
+      dockerfile: services/fraud-service/Dockerfile
+    networks: [alia-network]
+    ports:
+      - '3006:3006'
+    environment:
+      PORT: 3006
+      NODE_ENV: ${NODE_ENV:-production}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-raldalia}:${POSTGRES_PASSWORD:-raldalia_secret}@postgres:5432/${POSTGRES_DB:-raldalia}
+      REDIS_URL: redis://:${REDIS_PASSWORD:-raldalia_redis}@redis:6379
+      KAFKA_BROKERS: kafka:9092
+      MACHINE_JWT_SECRET: ${MACHINE_JWT_SECRET}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    restart: unless-stopped
+
+  audit-service:
+    build:
+      context: .
+      dockerfile: services/audit-service/Dockerfile
+    networks: [alia-network]
+    ports:
+      - '3007:3007'
+    environment:
+      PORT: 3007
+      NODE_ENV: ${NODE_ENV:-production}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-raldalia}:${POSTGRES_PASSWORD:-raldalia_secret}@postgres:5432/${POSTGRES_DB:-raldalia}
+      KAFKA_BROKERS: kafka:9092
+      MACHINE_JWT_SECRET: ${MACHINE_JWT_SECRET}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    restart: unless-stopped
+
+  notification-service:
+    build:
+      context: .
+      dockerfile: services/notification-service/Dockerfile
+    networks: [alia-network]
+    ports:
+      - '3008:3008'
+    environment:
+      PORT: 3008
+      NODE_ENV: ${NODE_ENV:-production}
+      KAFKA_BROKERS: kafka:9092
+      RESEND_API_KEY: ${RESEND_API_KEY}
+      TERMII_API_KEY: ${TERMII_API_KEY}
+      MACHINE_JWT_SECRET: ${MACHINE_JWT_SECRET}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    depends_on:
+      kafka:
+        condition: service_healthy
+    restart: unless-stopped
+
+  governance-service:
+    build:
+      context: .
+      dockerfile: services/governance-service/Dockerfile
+    networks: [alia-network]
+    ports:
+      - '3009:3009'
+    environment:
+      PORT: 3009
+      NODE_ENV: ${NODE_ENV:-production}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-raldalia}:${POSTGRES_PASSWORD:-raldalia_secret}@postgres:5432/${POSTGRES_DB:-raldalia}
+      REDIS_URL: redis://:${REDIS_PASSWORD:-raldalia_redis}@redis:6379
+      KAFKA_BROKERS: kafka:9092
+      MACHINE_JWT_SECRET: ${MACHINE_JWT_SECRET}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    restart: unless-stopped
+
+  consent-service:
+    build:
+      context: .
+      dockerfile: services/consent-service/Dockerfile
+    networks: [alia-network]
+    ports:
+      - '3010:3010'
+    environment:
+      PORT: 3010
+      NODE_ENV: ${NODE_ENV:-production}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-raldalia}:${POSTGRES_PASSWORD:-raldalia_secret}@postgres:5432/${POSTGRES_DB:-raldalia}
+      REDIS_URL: redis://:${REDIS_PASSWORD:-raldalia_redis}@redis:6379
+      KAFKA_BROKERS: kafka:9092
+      MACHINE_JWT_SECRET: ${MACHINE_JWT_SECRET}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    restart: unless-stopped
+
+  trust-service:
+    build:
+      context: .
+      dockerfile: services/trust-service/Dockerfile
+    networks: [alia-network]
+    ports:
+      - '3011:3011'
+    environment:
+      PORT: 3011
+      NODE_ENV: ${NODE_ENV:-production}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-raldalia}:${POSTGRES_PASSWORD:-raldalia_secret}@postgres:5432/${POSTGRES_DB:-raldalia}
+      REDIS_URL: redis://:${REDIS_PASSWORD:-raldalia_redis}@redis:6379
+      KAFKA_BROKERS: kafka:9092
+      MACHINE_JWT_SECRET: ${MACHINE_JWT_SECRET}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    restart: unless-stopped
+
+  merchant-service:
+    build:
+      context: .
+      dockerfile: services/merchant-service/Dockerfile
+    networks: [alia-network]
+    ports:
+      - '3012:3012'
+    environment:
+      PORT: 3012
+      NODE_ENV: ${NODE_ENV:-production}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-raldalia}:${POSTGRES_PASSWORD:-raldalia_secret}@postgres:5432/${POSTGRES_DB:-raldalia}
+      REDIS_URL: redis://:${REDIS_PASSWORD:-raldalia_redis}@redis:6379
+      KAFKA_BROKERS: kafka:9092
+      MACHINE_JWT_SECRET: ${MACHINE_JWT_SECRET}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    restart: unless-stopped
+
+  verification-service:
+    build:
+      context: .
+      dockerfile: services/verification-service/Dockerfile
+    networks: [alia-network]
+    ports:
+      - '3013:3013'
+    environment:
+      PORT: 3013
+      NODE_ENV: ${NODE_ENV:-production}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-raldalia}:${POSTGRES_PASSWORD:-raldalia_secret}@postgres:5432/${POSTGRES_DB:-raldalia}
+      REDIS_URL: redis://:${REDIS_PASSWORD:-raldalia_redis}@redis:6379
+      KAFKA_BROKERS: kafka:9092
+      CREDENTIAL_SIGNING_KEY: ${CREDENTIAL_SIGNING_KEY}
+      MACHINE_JWT_SECRET: ${MACHINE_JWT_SECRET}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    restart: unless-stopped
+
+  institution-service:
+    build:
+      context: .
+      dockerfile: services/institution-service/Dockerfile
+    networks: [alia-network]
+    ports:
+      - '3014:3014'
+    environment:
+      PORT: 3014
+      NODE_ENV: ${NODE_ENV:-production}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-raldalia}:${POSTGRES_PASSWORD:-raldalia_secret}@postgres:5432/${POSTGRES_DB:-raldalia}
+      KAFKA_BROKERS: kafka:9092
+      MACHINE_JWT_SECRET: ${MACHINE_JWT_SECRET}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    restart: unless-stopped
+
+  registry-service:
+    build:
+      context: .
+      dockerfile: services/registry-service/Dockerfile
+    networks: [alia-network]
+    ports:
+      - '3015:3015'
+    environment:
+      PORT: 3015
+      NODE_ENV: ${NODE_ENV:-production}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-raldalia}:${POSTGRES_PASSWORD:-raldalia_secret}@postgres:5432/${POSTGRES_DB:-raldalia}
+      REDIS_URL: redis://:${REDIS_PASSWORD:-raldalia_redis}@redis:6379
+      KAFKA_BROKERS: kafka:9092
+      MACHINE_JWT_SECRET: ${MACHINE_JWT_SECRET}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    restart: unless-stopped

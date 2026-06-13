@@ -1,0 +1,40 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: #0A0A0A;
+  --foreground: #FAFAFA;
+  --surface: #131313;
+  --surface-2: #1C1C1C;
+  --hairline: rgba(255,255,255,0.08);
+  --signal: #D90429;
+  --signal-foreground: #FAFAFA;
+  --titanium: #B8BCC8;
+  --success: #34D399;
+  --warning: #FBBF24;
+  --info: #60A5FA;
+  --muted-foreground: #A0A0B0;
+  --border: rgba(255,255,255,0.09);
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  background-color: var(--background);
+  color: var(--foreground);
+  font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  -webkit-font-smoothing: antialiased;
+  font-feature-settings: "cv11", "ss01", "ss03";
+}
+::selection { background: var(--signal); color: var(--signal-foreground); }
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: var(--background); }
+::-webkit-scrollbar-thumb { background: #2a2a2a; border-radius: 3px; }
+.container-page { width: 100%; margin-inline: auto; max-width: 1280px; padding-inline: 1.25rem; }
+.grid-bg { background-image: linear-gradient(to right,rgba(255,255,255,0.04) 1px,transparent 1px),linear-gradient(to bottom,rgba(255,255,255,0.04) 1px,transparent 1px); background-size: 56px 56px; }
+.radial-spot { background: radial-gradient(60% 50% at 50% 0%,rgba(217,4,41,0.22) 0%,transparent 70%),radial-gradient(40% 40% at 80% 20%,rgba(96,165,250,0.14) 0%,transparent 70%); }
+.text-gradient { background: linear-gradient(180deg,#FAFAFA 0%,#B8BCC8 100%); -webkit-background-clip: text; background-clip: text; color: transparent; }
+@keyframes alia-ticker { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+@keyframes alia-ticker-rev { from { transform: translateX(-50%); } to { transform: translateX(0); } }
+.alia-ticker { animation: alia-ticker 40s linear infinite; }
+.alia-ticker-rev { animation: alia-ticker-rev 55s linear infinite; }

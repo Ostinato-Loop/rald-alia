@@ -49,6 +49,8 @@ retentionRouter.get('/effective-days', asyncHandler(async (req, res) => {
 
 const ScheduleSchema = z.object({
   entity_id:    z.string().min(1),
+  entity_type:  z.enum(['alias', 'identity', 'consent', 'trust_score']),
+  country_code: z.string().length(2).toUpperCase(),
   data_class:   z.string().min(1),
   reason:       z.enum(['user_request', 'retention_policy', 'legal_hold_lifted', 'account_closure']),
   requested_by: z.string().min(1),

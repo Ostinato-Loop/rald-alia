@@ -16,17 +16,17 @@ export interface RetentionPolicy {
 }
 
 export interface ScheduledDeletion {
-  id:             string;
-  entity_id:      string;
-  data_class:     string;
-  reason:         string;
-  requested_by:   string;
-  method:         string;
-  scheduled_at:   string;
-  execution_date: string;
-  status:         string;
-  completed_at?:  string;
-  created_at:     string;
+  id:              string;
+  country_code:    string;
+  entity_type:     string;
+  entity_id:       string;
+  retention_class: string;
+  scheduled_at:    string;   // future date when deletion is planned
+  executed_at?:    string;
+  cancelled_at?:   string;
+  status:          string;
+  metadata:        Record<string, unknown>;
+  created_at:      string;
 }
 
 const RETENTION_POLICIES: RetentionPolicy[] = [
@@ -110,46 +110,51 @@ export class RetentionEngine {
 
   async scheduleDeletion(params: {
     entity_id:   string;
+    entity_type: string;
+    country_code: string;
     data_class:  string;
     reason:      'user_request' | 'retention_policy' | 'legal_hold_lifted' | 'account_closure';
     requested_by: string;
   }): Promise<ScheduledDeletion> {
     const policy       = this.getPolicyForClass(params.data_class);
-    const scheduledAt  = new Date();
-    const executionDate = new Date(scheduledAt);
+    const now          = new Date();
+    const scheduledAt  = new Date(now);  // future deletion date
 
     if (params.reason === 'user_request') {
-      executionDate.setDate(executionDate.getDate() + 30);
+      scheduledAt.setDate(scheduledAt.getDate() + 30);
     } else if (policy) {
-      executionDate.setDate(executionDate.getDate() + policy.retention_days);
+      scheduledAt.setDate(scheduledAt.getDate() + policy.retention_days);
     }
 
-    const method = policy?.deletion_method ?? 'hard_delete';
-    const id     = uuidv4();
+    const id = uuidv4();
+    const meta = {
+      data_class:   params.data_class,
+      reason:       params.reason,
+      requested_by: params.requested_by,
+      method:       policy?.deletion_method ?? 'hard_delete',
+    };
 
     await this.db.insert(deletionSchedules).values({
       id,
-      entityId:      params.entity_id,
-      dataClass:     params.data_class,
-      reason:        params.reason,
-      requestedBy:   params.requested_by,
-      method,
+      countryCode:    params.country_code,
+      entityType:     params.entity_type,
+      entityId:       params.entity_id,
+      retentionClass: params.data_class,
       scheduledAt,
-      executionDate,
-      status:        'scheduled',
+      status:         'pending',
+      metadata:       meta,
     });
 
     return {
       id,
-      entity_id:      params.entity_id,
-      data_class:     params.data_class,
-      reason:         params.reason,
-      requested_by:   params.requested_by,
-      method,
-      scheduled_at:   scheduledAt.toISOString(),
-      execution_date: executionDate.toISOString(),
-      status:         'scheduled',
-      created_at:     scheduledAt.toISOString(),
+      country_code:    params.country_code,
+      entity_type:     params.entity_type,
+      entity_id:       params.entity_id,
+      retention_class: params.data_class,
+      scheduled_at:    scheduledAt.toISOString(),
+      status:          'pending',
+      metadata:        meta,
+      created_at:      now.toISOString(),
     };
   }
 
@@ -164,7 +169,7 @@ export class RetentionEngine {
       .select()
       .from(deletionSchedules)
       .where(where)
-      .orderBy(desc(deletionSchedules.executionDate))
+      .orderBy(desc(deletionSchedules.scheduledAt))
       .limit(params.limit)
       .offset((params.page - 1) * params.limit);
 
@@ -175,17 +180,17 @@ export class RetentionEngine {
 
     return {
       data: rows.map((r) => ({
-        id:             r.id,
-        entity_id:      r.entityId,
-        data_class:     r.dataClass,
-        reason:         r.reason,
-        requested_by:   r.requestedBy,
-        method:         r.method,
-        scheduled_at:   r.scheduledAt.toISOString(),
-        execution_date: r.executionDate.toISOString(),
-        status:         r.status,
-        completed_at:   r.completedAt?.toISOString(),
-        created_at:     r.createdAt.toISOString(),
+        id:              r.id,
+        country_code:    r.countryCode,
+        entity_type:     r.entityType,
+        entity_id:       r.entityId,
+        retention_class: r.retentionClass,
+        scheduled_at:    r.scheduledAt.toISOString(),
+        executed_at:     r.executedAt?.toISOString(),
+        cancelled_at:    r.cancelledAt?.toISOString(),
+        status:          r.status,
+        metadata:        (r.metadata as Record<string, unknown>) ?? {},
+        created_at:      r.createdAt.toISOString(),
       })),
       total: all.length,
     };
@@ -194,14 +199,14 @@ export class RetentionEngine {
   async markComplete(id: string): Promise<void> {
     await this.db
       .update(deletionSchedules)
-      .set({ status: 'completed', completedAt: new Date() })
+      .set({ status: 'executed', executedAt: new Date() })
       .where(eq(deletionSchedules.id, id));
   }
 
   async cancel(id: string): Promise<void> {
     await this.db
       .update(deletionSchedules)
-      .set({ status: 'cancelled' })
+      .set({ status: 'cancelled', cancelledAt: new Date(), cancelReason: 'admin_cancelled' })
       .where(eq(deletionSchedules.id, id));
   }
 }

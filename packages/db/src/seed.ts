@@ -238,7 +238,8 @@ async function verifySchema(db: ReturnType<typeof getDb>): Promise<void> {
 
   const tables = [
     'country_governance', 'country_governance_events',
-    'policy_violations', 'routing_decisions', 'deletion_schedules',
+    'policy_violations', 'governance_routing_decisions', 'alias_resolution_log',
+    'deletion_schedules', 'developer_webhook_logs',
     'machine_identities', 'machine_jwt_log',
     'financial_institutions', 'institution_licenses',
     'institution_routing_prefixes', 'institution_settlement_accounts', 'institution_events',

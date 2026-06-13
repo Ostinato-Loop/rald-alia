@@ -2,7 +2,7 @@
 // Full compliance enforcement: country-rule checks, framework registry,
 // alias-creation gate, and compliance report generation.
 
-import { eq, and, isNull, count as drizzleCount } from 'drizzle-orm';
+import { eq, and, ne, count as drizzleCount } from 'drizzle-orm';
 import { getDb, aliases } from '@rald-alia/db';
 import { CountryRulesEngine, type CountryProfile } from './countryRules';
 
@@ -201,7 +201,11 @@ export class ComplianceEngine {
     const [countResult] = await this.db
       .select({ value: drizzleCount() })
       .from(aliases)
-      .where(and(eq(aliases.userId, params.user_id), isNull(aliases.deletedAt)));
+      .where(and(
+        eq(aliases.entityId, params.user_id),
+        eq(aliases.entityType, 'user'),
+        ne(aliases.status, 'archived'),
+      ));
 
     const currentCount = Number(countResult?.value ?? 0);
     const maxAllowed   = rules.rules.max_alias_per_user;

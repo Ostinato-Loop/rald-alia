@@ -23,10 +23,9 @@ export interface CountryRecord {
   country_code:   string;
   country_name:   string;
   status:         CountryStatus;
-  currency:       string;
-  regulatory_body?: string;
-  approved_by?:   string;
-  approved_at?:   string;
+  currency_code:  string;
+  activated_by?:  string;
+  activated_at?:  string;
   notes?:         string;
   metadata:       Record<string, unknown>;
   created_at:     string;
@@ -55,26 +54,25 @@ const ALLOWED_TRANSITIONS: Record<string, CountryStatus[]> = {
 
 // Seed data — initial country records inserted on first boot if missing
 const SEED_COUNTRIES = [
-  { code: 'NG', name: 'Nigeria',      currency: 'NGN', regulatory_body: 'Central Bank of Nigeria (CBN)',      status: 'INTERNAL' as CountryStatus },
-  { code: 'GH', name: 'Ghana',        currency: 'GHS', regulatory_body: 'Bank of Ghana (BoG)',                status: 'DISABLED' as CountryStatus },
-  { code: 'KE', name: 'Kenya',        currency: 'KES', regulatory_body: 'Central Bank of Kenya (CBK)',        status: 'DISABLED' as CountryStatus },
-  { code: 'ZA', name: 'South Africa', currency: 'ZAR', regulatory_body: 'South African Reserve Bank (SARB)', status: 'DISABLED' as CountryStatus },
-  { code: 'RW', name: 'Rwanda',       currency: 'RWF', regulatory_body: 'National Bank of Rwanda (BNR)',      status: 'DISABLED' as CountryStatus },
+  { id: 'cgov_ng', code: 'NG', name: 'Nigeria',      currencyCode: 'NGN', status: 'INTERNAL' as CountryStatus },
+  { id: 'cgov_gh', code: 'GH', name: 'Ghana',        currencyCode: 'GHS', status: 'DISABLED' as CountryStatus },
+  { id: 'cgov_ke', code: 'KE', name: 'Kenya',        currencyCode: 'KES', status: 'DISABLED' as CountryStatus },
+  { id: 'cgov_za', code: 'ZA', name: 'South Africa', currencyCode: 'ZAR', status: 'DISABLED' as CountryStatus },
+  { id: 'cgov_rw', code: 'RW', name: 'Rwanda',       currencyCode: 'RWF', status: 'DISABLED' as CountryStatus },
 ];
 
 function rowToRecord(row: typeof countryGovernance.$inferSelect): CountryRecord {
   return {
-    country_code:    row.countryCode,
-    country_name:    row.countryName,
-    status:          row.status as CountryStatus,
-    currency:        row.currency,
-    regulatory_body: row.regulatoryBody ?? undefined,
-    approved_by:     row.approvedBy ?? undefined,
-    approved_at:     row.approvedAt?.toISOString(),
-    notes:           row.notes ?? undefined,
-    metadata:        (row.metadata as Record<string, unknown>) ?? {},
-    created_at:      row.createdAt.toISOString(),
-    updated_at:      row.updatedAt.toISOString(),
+    country_code:   row.countryCode,
+    country_name:   row.countryName,
+    status:         row.status as CountryStatus,
+    currency_code:  row.currencyCode,
+    activated_by:   row.activatedBy ?? undefined,
+    activated_at:   row.activatedAt?.toISOString(),
+    notes:          row.notes ?? undefined,
+    metadata:       (row.metadata as Record<string, unknown>) ?? {},
+    created_at:     row.createdAt.toISOString(),
+    updated_at:     row.updatedAt.toISOString(),
   };
 }
 
@@ -83,10 +81,10 @@ function eventRowToEvent(row: typeof countryGovernanceEvents.$inferSelect): Coun
     id:           row.id,
     country_code: row.countryCode,
     from_status:  row.fromStatus ?? undefined,
-    to_status:    row.toStatus,
+    to_status:    row.toStatus ?? '',
     actor_id:     row.actorId ?? undefined,
     actor_type:   row.actorType,
-    notes:        row.notes ?? undefined,
+    notes:        (row.metadata as Record<string, unknown>)?.['notes'] as string | undefined,
     created_at:   row.createdAt.toISOString(),
   };
 }
@@ -106,11 +104,11 @@ export class CountryGovernanceEngine {
 
       if (existing.length === 0) {
         await this.db.insert(countryGovernance).values({
-          countryCode:    c.code,
-          countryName:    c.name,
-          status:         c.status,
-          currency:       c.currency,
-          regulatoryBody: c.regulatory_body,
+          id:          c.id,
+          countryCode: c.code,
+          countryName: c.name,
+          status:      c.status,
+          currencyCode: c.currencyCode,
         });
       }
     }
@@ -179,11 +177,11 @@ export class CountryGovernanceEngine {
     const [updated] = await this.db
       .update(countryGovernance)
       .set({
-        status:     params.to_status,
-        approvedBy: params.actor_id,
-        approvedAt: now,
-        notes:      params.notes ?? null,
-        updatedAt:  now,
+        status:      params.to_status,
+        activatedBy: params.actor_id,
+        activatedAt: now,
+        notes:       params.notes ?? null,
+        updatedAt:   now,
       })
       .where(eq(countryGovernance.countryCode, code))
       .returning();
@@ -192,11 +190,12 @@ export class CountryGovernanceEngine {
     await this.db.insert(countryGovernanceEvents).values({
       id:          uuidv4(),
       countryCode: code,
+      eventType:   'status_changed',
       fromStatus:  rec.status,
       toStatus:    params.to_status,
       actorId:     params.actor_id,
       actorType:   params.actor_type,
-      notes:       params.notes ?? null,
+      metadata:    params.notes ? { notes: params.notes } : {},
     });
 
     return rowToRecord(updated!);

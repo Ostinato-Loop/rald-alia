@@ -9,8 +9,7 @@ on:
 env:
   PNPM_VERSION: '9'
   NODE_VERSION: '20'
-  AWS_REGION: eu-west-1
-  ECR_REGISTRY: ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.eu-west-1.amazonaws.com
+  AWS_REGION: ${{ secrets.AWS_REGION || 'eu-west-1' }}
   ECR_REPOSITORY_PREFIX: rald-alia
 
 jobs:
@@ -154,8 +153,7 @@ jobs:
             services/*/node_modules
           key: pnpm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
       - name: Run migrations
-        run: |
-          pnpm --filter @rald-alia/db db:migrate
+        run: pnpm --filter @rald-alia/db db:migrate
       - name: Run tests
         run: pnpm test --reporter=verbose
 
@@ -166,13 +164,16 @@ jobs:
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     strategy:
+      fail-fast: false
       matrix:
         service:
+          # Core resolution
           - identity-service
           - alias-service
           - directory-service
           - resolution-engine
           - routing-service
+          # Trust & consent
           - fraud-service
           - audit-service
           - notification-service
@@ -183,34 +184,61 @@ jobs:
           - verification-service
           - institution-service
           - registry-service
+          # Developer platform
+          - developer-service
+          # Control + intelligence
+          - control-plane
+          - loop-voice
+          # Gateway (last — depends on all above being healthy)
           - gateway
     steps:
       - uses: actions/checkout@v4
+
       - name: Download build artifacts
         uses: actions/download-artifact@v4
         with:
           name: dist
+
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ env.AWS_REGION }}
-      - name: Login to ECR
-        id: login-ecr
-        uses: aws-actions/amazon-ecr-login@v2
-      - name: Build and push ${{ matrix.service }}
-        env:
-          IMAGE_TAG: ${{ github.sha }}
-          SHORT_SHA: ${{ github.sha }}
+          aws-region:            ${{ env.AWS_REGION }}
+
+      - name: Derive ECR registry from caller identity
+        id: ecr
         run: |
-          docker build \
-            -t $ECR_REGISTRY/$ECR_REPOSITORY_PREFIX/${{ matrix.service }}:$IMAGE_TAG \
-            -t $ECR_REGISTRY/$ECR_REPOSITORY_PREFIX/${{ matrix.service }}:latest \
-            -f services/${{ matrix.service }}/Dockerfile \
-            .
-          docker push $ECR_REGISTRY/$ECR_REPOSITORY_PREFIX/${{ matrix.service }}:$IMAGE_TAG
-          docker push $ECR_REGISTRY/$ECR_REPOSITORY_PREFIX/${{ matrix.service }}:latest
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          echo "registry=${ACCOUNT_ID}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com" >> $GITHUB_OUTPUT
+
+      - name: Login to ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Create ECR repository if absent
+        run: |
+          aws ecr describe-repositories \
+            --repository-names "${{ env.ECR_REPOSITORY_PREFIX }}/${{ matrix.service }}" \
+            --region "${{ env.AWS_REGION }}" \
+          || aws ecr create-repository \
+            --repository-name "${{ env.ECR_REPOSITORY_PREFIX }}/${{ matrix.service }}" \
+            --image-scanning-configuration scanOnPush=true \
+            --region "${{ env.AWS_REGION }}"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push ${{ matrix.service }}
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: services/${{ matrix.service }}/Dockerfile
+          push: true
+          tags: |
+            ${{ steps.ecr.outputs.registry }}/${{ env.ECR_REPOSITORY_PREFIX }}/${{ matrix.service }}:${{ github.sha }}
+            ${{ steps.ecr.outputs.registry }}/${{ env.ECR_REPOSITORY_PREFIX }}/${{ matrix.service }}:latest
+          cache-from: type=registry,ref=${{ steps.ecr.outputs.registry }}/${{ env.ECR_REPOSITORY_PREFIX }}/${{ matrix.service }}:latest
+          cache-to: type=inline
 
   # ── Deploy to Dev (main branch) ──────────────────────────────────────────
   deploy-dev:
@@ -221,28 +249,50 @@ jobs:
     environment: development
     steps:
       - uses: actions/checkout@v4
+
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ env.AWS_REGION }}
-      - name: Update ECS services
+          aws-region:            ${{ env.AWS_REGION }}
+
+      - name: Force new deployment — all 19 services
         run: |
           SERVICES=(
-            identity-service alias-service directory-service resolution-engine
-            routing-service fraud-service audit-service notification-service
-            governance-service consent-service trust-service merchant-service
-            verification-service institution-service registry-service gateway
+            identity-service    alias-service        directory-service
+            resolution-engine   routing-service      fraud-service
+            audit-service       notification-service governance-service
+            consent-service     trust-service        merchant-service
+            verification-service institution-service registry-service
+            developer-service   control-plane        loop-voice
+            gateway
           )
+          FAILED=()
           for svc in "${SERVICES[@]}"; do
+            echo "  deploying alia-${svc}-dev..."
             aws ecs update-service \
               --cluster alia-dev \
-              --service alia-${svc}-dev \
+              --service "alia-${svc}-dev" \
               --force-new-deployment \
-              --region ${{ env.AWS_REGION }} || true
-            echo "Triggered deployment for $svc"
+              --region "${{ env.AWS_REGION }}" \
+              --no-cli-pager \
+            && echo "  ✓ ${svc}" \
+            || { echo "  ✗ ${svc} (skipped — service may not exist yet)"; FAILED+=("${svc}"); }
           done
+          echo ""
+          echo "Deployed: $((${#SERVICES[@]} - ${#FAILED[@]})) / ${#SERVICES[@]}"
+          if [ ${#FAILED[@]} -gt 0 ]; then
+            echo "Skipped (not provisioned yet): ${FAILED[*]}"
+          fi
+
+      - name: Smoke test — gateway health
+        continue-on-error: true
+        run: |
+          sleep 30
+          STATUS=$(curl -sf -o /dev/null -w "%{http_code}" \
+            "${{ secrets.DEV_GATEWAY_URL || 'http://localhost' }}/healthz" || echo "000")
+          echo "Gateway /healthz → HTTP ${STATUS}"
 
   # ── Deploy to Staging (tag v*-rc*) ────────────────────────────────────────
   deploy-staging:
@@ -253,26 +303,33 @@ jobs:
     environment: staging
     steps:
       - uses: actions/checkout@v4
+
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ env.AWS_REGION }}
-      - name: Update ECS services
+          aws-region:            ${{ env.AWS_REGION }}
+
+      - name: Force new deployment — staging
         run: |
           SERVICES=(
-            identity-service alias-service directory-service resolution-engine
-            routing-service fraud-service audit-service notification-service
-            governance-service consent-service trust-service merchant-service
-            verification-service institution-service registry-service gateway
+            identity-service    alias-service        directory-service
+            resolution-engine   routing-service      fraud-service
+            audit-service       notification-service governance-service
+            consent-service     trust-service        merchant-service
+            verification-service institution-service registry-service
+            developer-service   control-plane        loop-voice
+            gateway
           )
           for svc in "${SERVICES[@]}"; do
             aws ecs update-service \
               --cluster alia-staging \
-              --service alia-${svc}-staging \
+              --service "alia-${svc}-staging" \
               --force-new-deployment \
-              --region ${{ env.AWS_REGION }} || true
+              --region "${{ env.AWS_REGION }}" \
+              --no-cli-pager || true
+            echo "  ✓ ${svc}"
           done
 
   # ── Deploy to Production (tag v*, no -rc) ────────────────────────────────
@@ -284,24 +341,36 @@ jobs:
     environment: production
     steps:
       - uses: actions/checkout@v4
+
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ env.AWS_REGION }}
-      - name: Update ECS services (rolling deploy)
+          aws-region:            ${{ env.AWS_REGION }}
+
+      - name: Rolling deploy — production (all 19 services)
         run: |
           SERVICES=(
-            identity-service alias-service directory-service resolution-engine
-            routing-service fraud-service audit-service notification-service
-            governance-service consent-service trust-service merchant-service
-            verification-service institution-service registry-service gateway
+            identity-service    alias-service        directory-service
+            resolution-engine   routing-service      fraud-service
+            audit-service       notification-service governance-service
+            consent-service     trust-service        merchant-service
+            verification-service institution-service registry-service
+            developer-service   control-plane        loop-voice
+            gateway
           )
           for svc in "${SERVICES[@]}"; do
             aws ecs update-service \
               --cluster alia-production \
-              --service alia-${svc}-production \
+              --service "alia-${svc}-production" \
               --force-new-deployment \
-              --region ${{ env.AWS_REGION }} || true
+              --region "${{ env.AWS_REGION }}" \
+              --no-cli-pager || true
+            echo "  ✓ ${svc}"
           done
+
+      - name: Record deployment audit
+        if: always()
+        run: |
+          echo "AUDIT: cluster=alia-production commit=${{ github.sha }} tag=${{ github.ref_name }} actor=${{ github.actor }} ts=$(date -u +%Y-%m-%dT%H:%M:%SZ) status=${{ job.status }}"

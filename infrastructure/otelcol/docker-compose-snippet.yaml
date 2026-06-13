@@ -1,0 +1,38 @@
+# ── OpenTelemetry Collector (port 4317/4318) ────────────────────────────────
+# Add this service block to docker-compose.yml under `services:`.
+# Also add OTEL env vars (below) to each ALIA service block.
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.105.0
+    networks: [alia-network]
+    ports:
+      - '4317:4317'   # OTLP gRPC
+      - '4318:4318'   # OTLP HTTP
+      - '8888:8888'   # Collector self-metrics (Prometheus)
+      - '13133:13133' # Health check
+      - '55679:55679' # zPages debug UI
+    volumes:
+      - ./infrastructure/otelcol/config.yaml:/etc/otelcol/config.yaml:ro
+    environment:
+      AWS_REGION:             ${AWS_REGION:-eu-west-1}
+      OTEL_UPSTREAM_ENDPOINT: ${OTEL_UPSTREAM_ENDPOINT:-}
+      OTEL_UPSTREAM_TOKEN:    ${OTEL_UPSTREAM_TOKEN:-}
+    command: ['--config=/etc/otelcol/config.yaml']
+    healthcheck:
+      test: ['CMD', 'wget', '--no-verbose', '--tries=1', '--spider', 'http://localhost:13133/']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+# ── OTEL env vars to add to every ALIA service ───────────────────────────────
+# Add these to the `environment:` block of each service in docker-compose.yml:
+#
+#   OTEL_ENABLED:                  ${OTEL_ENABLED:-true}
+#   OTEL_SERVICE_NAME:             <service-name>          # e.g. identity-service
+#   OTEL_EXPORTER_OTLP_ENDPOINT:   http://otel-collector:4318
+#   OTEL_RESOURCE_ATTRIBUTES:      deployment.environment=${NODE_ENV:-production}
+#
+# And add to `depends_on:`:
+#   otel-collector:
+#     condition: service_healthy

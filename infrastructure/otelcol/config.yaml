@@ -1,0 +1,164 @@
+# infrastructure/otelcol/config.yaml
+# RALD ALIA — OpenTelemetry Collector
+#
+# Receives OTLP from all 19 services → exports to:
+#   - AWS X-Ray (traces, production)
+#   - AWS CloudWatch EMF (metrics, production)
+#   - stdout/logging (local development)
+#
+# Run locally: docker-compose up otel-collector
+# Production:  ECS service in the monitoring module (Fargate, 0.25 vCPU / 512MB)
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+        cors:
+          allowed_origins: ["*"]
+
+  # Prometheus scrape for self-monitoring
+  prometheus:
+    config:
+      scrape_configs:
+        - job_name: otel-collector
+          scrape_interval: 30s
+          static_configs:
+            - targets: [localhost:8888]
+
+processors:
+  # Batch traces before exporting — reduces API calls
+  batch:
+    timeout: 5s
+    send_batch_size: 512
+    send_batch_max_size: 1024
+
+  # Add global resource attributes to every span and metric
+  resource:
+    attributes:
+      - key: service.namespace
+        value: alia
+        action: insert
+      - key: cloud.provider
+        value: aws
+        action: insert
+      - key: cloud.region
+        from_attribute: AWS_REGION
+        action: insert
+
+  # Drop health check spans to reduce noise
+  filter/health:
+    error_mode: ignore
+    traces:
+      span:
+        - 'attributes["http.route"] == "/healthz"'
+        - 'attributes["http.route"] == "/health"'
+        - 'attributes["http.target"] == "/healthz"'
+        - 'attributes["http.target"] == "/health"'
+
+  # Memory limiter — prevents OOM on traffic spikes
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 400
+    spike_limit_mib: 100
+
+  # Probabilistic sampling — keep 100% of errors, 20% of normal traces
+  probabilistic_sampler:
+    sampling_percentage: 20
+    attribute_source: record
+    from_attribute: alia.resolution.outcome
+
+exporters:
+  # ── Local dev: log to stdout ──────────────────────────────────────────────
+  debug:
+    verbosity: basic
+    sampling_initial: 5
+    sampling_thereafter: 100
+
+  # ── AWS X-Ray (traces — production) ───────────────────────────────────────
+  awsxray:
+    region: ${env:AWS_REGION}
+    # Segments are named by service.name attribute (set in tracer.ts)
+    no_verify_ssl: false
+    local_mode: false
+
+  # ── AWS CloudWatch EMF (metrics — production) ────────────────────────────
+  awsemf:
+    region: ${env:AWS_REGION}
+    log_group_name: /alia/otel/metrics
+    log_stream_name: ${env:HOSTNAME}
+    namespace: RALD/ALIA
+    dimension_rollup_option: NoDimensionRollup
+    metric_declarations:
+      # Resolution metrics
+      - dimensions: [[service.name, alia.alias.country, alia.resolution.outcome]]
+        metric_name_selectors: [alia.resolution.*]
+      # Kafka metrics
+      - dimensions: [[service.name, alia.kafka.topic]]
+        metric_name_selectors: [alia.kafka.*]
+      # API key metrics
+      - dimensions: [[service.name, alia.developer.api_key.environment]]
+        metric_name_selectors: [alia.api_key.*]
+      # Voice metrics
+      - dimensions: [[service.name, alia.alias.country]]
+        metric_name_selectors: [alia.voice.*]
+      # Machine auth
+      - dimensions: [[service.name, alia.machine.service_name]]
+        metric_name_selectors: [alia.machine.*]
+
+  # ── OTLP passthrough (optional — forward to Grafana Cloud / Honeycomb) ────
+  otlphttp/upstream:
+    endpoint: ${env:OTEL_UPSTREAM_ENDPOINT}
+    headers:
+      Authorization: "Bearer ${env:OTEL_UPSTREAM_TOKEN}"
+    sending_queue:
+      enabled: true
+      num_consumers: 4
+      queue_size: 1000
+    retry_on_failure:
+      enabled: true
+      initial_interval: 5s
+      max_interval: 30s
+
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
+  pprof:
+    endpoint: 0.0.0.0:1777
+  zpages:
+    endpoint: 0.0.0.0:55679
+
+service:
+  extensions: [health_check, pprof, zpages]
+
+  pipelines:
+    # ── Traces ──────────────────────────────────────────────────────────────
+    traces/dev:
+      receivers:  [otlp]
+      processors: [memory_limiter, filter/health, batch]
+      exporters:  [debug]
+
+    traces/prod:
+      receivers:  [otlp]
+      processors: [memory_limiter, filter/health, probabilistic_sampler, resource, batch]
+      exporters:  [awsxray]
+
+    # ── Metrics ─────────────────────────────────────────────────────────────
+    metrics/dev:
+      receivers:  [otlp, prometheus]
+      processors: [memory_limiter, batch]
+      exporters:  [debug]
+
+    metrics/prod:
+      receivers:  [otlp, prometheus]
+      processors: [memory_limiter, resource, batch]
+      exporters:  [awsemf]
+
+  telemetry:
+    logs:
+      level: warn
+    metrics:
+      level: basic
+      address: 0.0.0.0:8888

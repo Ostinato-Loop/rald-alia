@@ -148,14 +148,16 @@ export class ResolutionService {
         resolved_at:           cachedResolution.resolvedAt,
       });
 
-      // ── Audit log — fire and forget ────────────────────────────────────────
+      // ── Audit log + Kafka — fire and forget ──────────────────────────────────
+      const latencyMs = Date.now() - startTime;
+
       this.writeAuditLog({
         aliasId:         cachedResolution.aliasId,
         requestId:       resolutionId,
         initiatorId:     data.initiatingBank,
         destinationBank: cachedResolution.destinationBankCode,
         routingStrategy: fromCache ? 'cache' : 'primary',
-        latencyMs:       Date.now() - startTime,
+        latencyMs,
         status:          'completed',
         failureReason:   null,
         countryCode:     cachedResolution.countryCode,
@@ -167,6 +169,7 @@ export class ResolutionService {
           resolutionId,
           alias:               normalized,
           destinationBankCode: cachedResolution.destinationBankCode,
+          latencyMs,
           success:             true,
           fromCache,
         },

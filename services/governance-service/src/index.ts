@@ -5,6 +5,7 @@ import pino from 'pino';
 import { app } from './app';
 import { closeDb } from '@rald-alia/db';
 import { CountryGovernanceEngine } from './services/countryGovernance';
+import { startGovernanceConsumers } from './consumers';
 
 export const logger = pino({
   name:      'governance-service',
@@ -24,6 +25,13 @@ async function main(): Promise<void> {
     logger.info('Country governance seed complete');
   } catch (err) {
     logger.error({ err }, 'Country governance seed failed — continuing');
+  }
+
+  // Boot Kafka consumer (non-fatal if Kafka unavailable in dev)
+  try {
+    await startGovernanceConsumers();
+  } catch (err) {
+    logger.error({ err }, 'governance-service Kafka consumer failed to start — continuing without consumers');
   }
 
   const server = app.listen(PORT, () => {

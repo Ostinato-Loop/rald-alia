@@ -1,6 +1,5 @@
 import express, { type Express } from "express";
 import { tightHelmet, publicCors, createRateLimiter, RateTier } from '@rald-alia/shared/security';
-import rateLimit from "express-rate-limit";
 import pinoHttp from "pino-http";
 import { logger } from "./lib/logger";
 import router from "./routes";

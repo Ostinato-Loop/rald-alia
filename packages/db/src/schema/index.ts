@@ -1,8 +1,14 @@
 // packages/db/src/schema/index.ts
 // Central re-export of all Drizzle schema tables and enums.
-// Add new schema files here as milestones land.
+// Each milestone adds its tables here.
+//
+// Note on top-level schema.engines.ts and schema.registry.ts:
+// Those files are ALSO exported by packages/db/src/index.ts directly.
+// Do NOT re-export them here to avoid duplicate export errors.
 
 // ── M0: Core schema ───────────────────────────────────────────────────────────
+// users, organizations, aliases, bankLinks, routingProfiles
+// apiKeys, auditLogs, fraudEvents, webhooks, identityTransitions
 export {
   aliasTypeEnum,
   aliasStatusEnum,
@@ -17,39 +23,15 @@ export {
   auditLogs,
   fraudEvents,
   webhooks,
+  identityTransitions,
 } from './core';
 
-// ── M1: ALIA Engines ──────────────────────────────────────────────────────────
-export {
-  trustScores,
-  trustSignals,
-  consentMandates,
-  consentEvents,
-  merchantProfiles,
-  merchantCollections,
-  verificationCredentials,
-  kycRequests,
-  governancePolicies,
-  policyViolations,
-  routingDecisions,
-} from './engines';
-
-// ── M2: Registry ──────────────────────────────────────────────────────────────
-export {
-  registry,
-  registryEvents,
-} from './registry';
-
-// ── M3: Identity State Machine ────────────────────────────────────────────────
-// Columns added via migration 0003 — identity_transitions table
-// The users table now has: identityStatus, pendingExpiresAt, verifiedAt,
-//   activatedAt, trustedAt, suspendedAt, archived_at, etc.
-// The aliases table now has: pendingExpiresAt, quarantineUntil, etc.
-
 // ── M4: Machine Identity ──────────────────────────────────────────────────────
+// machineIdentities, machineJwtLog, controlPlaneEvents
 export {
   machineIdentities,
   machineJwtLog,
+  controlPlaneEvents,
 } from './security';
 
 // ── M5: Institution Registry ──────────────────────────────────────────────────
@@ -66,18 +48,19 @@ export {
 } from './institutions';
 
 // ── M6: Country Governance ────────────────────────────────────────────────────
-// Country status lifecycle: DISABLED → INTERNAL → PRIVATE_BETA → PUBLIC_BETA → GA
-// Admin-gated — no country activates automatically.
+// country_governance, country_governance_events,
+// governance_routing_decisions, policy_violations, deletion_schedules,
+// alias_resolution_log (the detailed per-alias resolution audit table)
 export {
   countryGovernance,
   countryGovernanceEvents,
+  governanceRoutingDecisions,
+  governancePolicyViolations,
   deletionSchedules,
+  aliasResolutionLog,
 } from './engines';
 
 // ── M7: Developer Registry ────────────────────────────────────────────────────
-// Developer lifecycle: applied → verified → active → suspended → revoked
-// API keys: rald_key_{prod|test}_{48hex} — SHA-256 hash stored, returned once.
-// Rate limits: sandbox=60rpm/10k-rpd, production=120rpm/50k-rpd
 export {
   developerStatusEnum,
   projectStatusEnum,
@@ -87,3 +70,8 @@ export {
   developerApiKeys,
   developerEvents,
 } from './developers';
+
+// ── M9: Developer Webhook Logs ────────────────────────────────────────────────
+export {
+  developerWebhookLogs,
+} from './webhooks';

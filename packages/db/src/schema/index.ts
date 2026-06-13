@@ -10,8 +10,6 @@
 // users, organizations, aliases, bankLinks, routingProfiles
 // apiKeys, auditLogs, fraudEvents, webhooks, identityTransitions
 export {
-  aliasTypeEnum,
-  aliasStatusEnum,
   riskLevelEnum,
   environmentEnum,
   users,

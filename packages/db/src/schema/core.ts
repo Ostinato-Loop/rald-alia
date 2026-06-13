@@ -229,29 +229,30 @@ export const apiKeys = pgTable(
 );
 
 // ── Audit Logs ────────────────────────────────────────────────────────────────
+// Tamper-evident audit trail — each entry carries a SHA-256 checksum over the payload.
+// Columns match audit.service.ts which writes every record with: eventType, actorId,
+// actorType, targetId, targetType, metadata, ipAddress, userAgent, checksum.
 
 export const auditLogs = pgTable(
   'audit_logs',
   {
-    id:          text('id').primaryKey(),
-    entityId:    text('entity_id').notNull(),
-    entityType:  text('entity_type').notNull(),
-    action:      text('action').notNull(),
-    actorId:     text('actor_id'),
-    actorType:   text('actor_type').notNull().default('system'),
-    serviceName: text('service_name').notNull(),
-    requestId:   text('request_id'),
-    ipAddress:   text('ip_address'),
-    oldData:     jsonb('old_data'),
-    newData:     jsonb('new_data'),
-    metadata:    jsonb('metadata').notNull().default({}),
-    createdAt:   timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    id:         text('id').primaryKey(),
+    eventType:  text('event_type').notNull(),
+    actorId:    text('actor_id'),
+    actorType:  text('actor_type'),
+    targetId:   text('target_id'),
+    targetType: text('target_type'),
+    metadata:   jsonb('metadata').notNull().default({}),
+    ipAddress:  text('ip_address'),
+    userAgent:  text('user_agent'),
+    checksum:   text('checksum'),              // SHA-256 of the serialised payload
+    createdAt:  timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
-    index('audit_logs_entity_idx').on(t.entityId, t.entityType),
-    index('audit_logs_action_idx').on(t.action),
+    index('audit_logs_event_idx').on(t.eventType),
+    index('audit_logs_actor_idx').on(t.actorId),
+    index('audit_logs_target_idx').on(t.targetId),
     index('audit_logs_time_idx').on(t.createdAt),
-    index('audit_logs_service_idx').on(t.serviceName),
   ],
 );
 

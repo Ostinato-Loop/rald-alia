@@ -1,8 +1,6 @@
 // services/governance-service/src/app.ts
 import express from 'express';
-import helmet from 'helmet';
-import cors from 'cors';
-import { rateLimit } from 'express-rate-limit';
+import { tightHelmet, internalCors, createRateLimiter, RateTier } from '@rald-alia/shared/security';
 import { pinoHttp } from 'pino-http';
 import { router } from './routes';
 import { requestIdMiddleware } from '@rald-alia/shared/requestId';
@@ -10,18 +8,13 @@ import { logger } from './index';
 
 export const app = express();
 
-app.use(helmet());
+app.use(tightHelmet());
 app.use(cors());
 app.use(express.json());
 app.use(requestIdMiddleware);
 app.use(pinoHttp({ logger }));
 
-app.use(rateLimit({
-  windowMs:        60_000,
-  max:             500,
-  standardHeaders: true,
-  legacyHeaders:   false,
-}));
+app.use(createRateLimiter(RateTier.HIGH));
 
 app.get('/healthz', (_req, res) => {
   res.json({

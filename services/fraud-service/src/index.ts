@@ -1,4 +1,5 @@
 import 'dotenv/config';
+import '@rald-alia/observability'; // Must be first — boots OTEL SDK
 import { app } from './app';
 import { startConsumer } from './kafka/consumer';
 import { getPool } from '@rald-alia/db';

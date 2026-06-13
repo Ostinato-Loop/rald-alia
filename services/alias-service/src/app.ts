@@ -1,17 +1,15 @@
 import express from 'express';
-import helmet from 'helmet';
-import cors from 'cors';
-import { rateLimit } from 'express-rate-limit';
+import { tightHelmet, internalCors, createRateLimiter, RateTier } from '@rald-alia/shared/security';
 import { router } from './routes';
 import { errorHandler } from './middleware/errorHandler';
 
 export const app = express();
 
-app.use(helmet());
+app.use(tightHelmet());
 app.use(cors());
 app.use(express.json({ limit: '1mb' }));
 
-app.use(rateLimit({ windowMs: 60_000, max: 200, standardHeaders: true, legacyHeaders: false }));
+app.use(createRateLimiter(RateTier.HIGH));
 
 app.get('/health', (_req, res) => {
   res.json({ status: 'ok', service: 'alias-service', timestamp: new Date().toISOString() });

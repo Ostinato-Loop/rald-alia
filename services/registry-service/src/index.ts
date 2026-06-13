@@ -1,5 +1,6 @@
 // services/registry-service/src/index.ts
 import 'dotenv/config';
+import '@rald-alia/observability'; // Must be first — boots OTEL SDK
 import pino from 'pino';
 import { sql } from 'drizzle-orm';
 import { getDb, closeDb } from '@rald-alia/db';

@@ -1,5 +1,6 @@
 // services/control-plane/src/index.ts
 import 'dotenv/config';
+import '@rald-alia/observability'; // Must be first — boots OTEL SDK
 import pino from 'pino';
 import { app } from './app';
 import { closeDb } from '@rald-alia/db';

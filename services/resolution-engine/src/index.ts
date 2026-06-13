@@ -1,26 +1,34 @@
-// services/developer-service/src/index.ts
+// services/resolution-engine/src/index.ts
 import 'dotenv/config';
 import '@rald-alia/observability'; // Must be first — boots OTEL SDK
 import pino from 'pino';
+import { sql } from 'drizzle-orm';
+import { getDb, closeDb } from '@rald-alia/db';
 import { app } from './app';
-import { closeDb } from '@rald-alia/db';
 
 export const logger = pino({
-  name:      'developer-service',
+  name:      'resolution-engine',
   level:     process.env['LOG_LEVEL'] ?? 'info',
   timestamp: pino.stdTimeFunctions.isoTime,
 });
 
-const PORT = parseInt(process.env['PORT'] ?? '3009', 10);
+const PORT = parseInt(process.env['PORT'] ?? '3016', 10);
 
 async function main(): Promise<void> {
-  logger.info('Starting developer-service…');
+  logger.info('Starting resolution-engine…');
+
+  try {
+    await getDb().execute(sql`SELECT 1`);
+    logger.info('Database connected');
+  } catch (err) {
+    logger.error({ err }, 'Database connection failed — aborting startup');
+    process.exit(1);
+  }
 
   const server = app.listen(PORT, () => {
-    logger.info({ port: PORT }, 'developer-service listening');
+    logger.info({ port: PORT }, 'resolution-engine listening');
   });
 
-  // ── Graceful shutdown ─────────────────────────────────────────────────────
   async function shutdown(signal: string): Promise<void> {
     logger.info({ signal }, 'Graceful shutdown initiated');
     server.close(async () => {
@@ -32,7 +40,6 @@ async function main(): Promise<void> {
       }
       process.exit(0);
     });
-    // Force exit if the server hasn't drained within 10s
     setTimeout(() => {
       logger.error('Shutdown timeout exceeded — forcing exit');
       process.exit(1);
@@ -44,6 +51,6 @@ async function main(): Promise<void> {
 }
 
 main().catch((err) => {
-  logger.error({ err }, 'developer-service fatal startup error');
+  logger.error({ err }, 'resolution-engine fatal startup error');
   process.exit(1);
 });

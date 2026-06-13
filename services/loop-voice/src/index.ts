@@ -1,3 +1,4 @@
+import '@rald-alia/observability'; // Must be first — boots OTEL SDK
 import { app } from './app';
 import { MachineBootstrap } from '@rald-alia/shared/machineBootstrap';
 

@@ -1,6 +1,5 @@
 import express from 'express';
-import helmet from 'helmet';
-import cors from 'cors';
+import { tightHelmet, internalCors, createRateLimiter, RateTier } from '@rald-alia/shared/security';
 import { pinoHttp } from 'pino-http';
 import { logger } from './index';
 import { registryRouter } from './routes/registry.routes';
@@ -8,7 +7,7 @@ import { requireAuth } from './middleware/auth.middleware';
 
 export const app = express();
 
-app.use(helmet());
+app.use(tightHelmet());
 app.use(cors());
 app.use(express.json());
 app.use(pinoHttp({ logger }));

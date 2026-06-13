@@ -1,6 +1,5 @@
 import express, { type Express } from "express";
-import cors from "cors";
-import helmet from "helmet";
+import { tightHelmet, publicCors, createRateLimiter, RateTier } from '@rald-alia/shared/security';
 import rateLimit from "express-rate-limit";
 import pinoHttp from "pino-http";
 import { logger } from "./lib/logger";
@@ -8,24 +7,11 @@ import router from "./routes";
 
 const app: Express = express();
 
-app.use(helmet());
-app.use(
-  cors({
-    origin: process.env.CORS_ORIGIN?.split(",") ?? "*",
-    credentials: true,
-  }),
-);
+app.use(tightHelmet());
+app.use(publicCors());
 app.use(express.json({ limit: "2mb" }));
 app.use(express.urlencoded({ extended: true }));
-app.use(
-  rateLimit({
-    windowMs: 60_000,
-    max: 300,
-    standardHeaders: true,
-    legacyHeaders: false,
-    message: { code: "RATE_LIMITED", message: "Too many requests" },
-  }),
-);
+app.use(createRateLimiter(RateTier.HIGH));
 app.use(
   pinoHttp({
     logger,

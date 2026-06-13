@@ -1,11 +1,10 @@
 import express from 'express';
-import helmet from 'helmet';
-import cors from 'cors';
+import { tightHelmet, internalCors, createRateLimiter, RateTier } from '@rald-alia/shared/security';
 import { router } from './routes';
 import { errorHandler } from './middleware/errorHandler';
 
 export const app = express();
-app.use(helmet());
+app.use(tightHelmet());
 app.use(cors());
 app.use(express.json());
 

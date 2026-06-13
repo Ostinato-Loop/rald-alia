@@ -1,18 +1,19 @@
 import express from 'express';
-import helmet from 'helmet';
+import { tightHelmet, createRateLimiter, RateTier } from '@rald-alia/shared/security';
 import { pinoHttp } from 'pino-http';
-import rateLimit from 'express-rate-limit';
 import { voiceRouter } from './routes';
 import { errorHandler } from './middleware/errorHandler';
 
 export const app = express();
 
-app.use(helmet());
+// loop-voice is called by telecom/USSD infrastructure — no browser CORS needed
+app.use(tightHelmet());
 app.use(pinoHttp({ level: process.env['LOG_LEVEL'] ?? 'info' }));
 app.use(express.json({ limit: '50mb' }));
 
-app.use('/v1/voice/transcribe', rateLimit({ windowMs: 60_000, max: 100 }));
-app.use('/v1/voice/synthesize', rateLimit({ windowMs: 60_000, max: 200 }));
+// Per-route rate limits: transcription is compute-heavy, synthesis is lighter
+app.use('/v1/voice/transcribe', createRateLimiter(RateTier.STANDARD));
+app.use('/v1/voice/synthesize', createRateLimiter(RateTier.HIGH));
 
 app.get('/health', (_req, res) => res.json({
   ok: true, service: 'loop-voice', version: '1.0.0',

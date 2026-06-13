@@ -1,31 +1,30 @@
-// services/developer-service/src/app.ts
+// services/consent-service/src/app.ts
 import express from 'express';
 import { tightHelmet, internalCors, createRateLimiter, RateTier } from '@rald-alia/shared/security';
 import { pinoHttp } from 'pino-http';
-import { router } from './routes';
 import { requestIdMiddleware } from '@rald-alia/shared/requestId';
 import { logger } from './index';
 
 export const app = express();
 
 app.use(tightHelmet());
-app.use(cors());
+app.use(internalCors());
 app.use(express.json());
 app.use(requestIdMiddleware);
 app.use(pinoHttp({ logger }));
-
-app.use(createRateLimiter(RateTier.HIGH));
+app.use(createRateLimiter(RateTier.STANDARD));
 
 app.get('/healthz', (_req, res) => {
   res.json({
     status:    'ok',
-    service:   'developer-service',
+    service:   'consent-service',
     version:   '0.1.0',
     timestamp: new Date().toISOString(),
   });
 });
 
-app.use('/v1', router);
+// Routes will be added as the service is implemented
+// app.use('/v1', router);
 
 app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
   const status  = err.status  ?? 500;

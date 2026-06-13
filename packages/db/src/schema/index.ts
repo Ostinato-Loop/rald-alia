@@ -64,3 +64,12 @@ export {
   institutionSettlementAccounts,
   institutionEvents,
 } from './institutions';
+
+// ── M6: Country Governance ────────────────────────────────────────────────────
+// Country status lifecycle: DISABLED → INTERNAL → PRIVATE_BETA → PUBLIC_BETA → GA
+// Admin-gated — no country activates automatically.
+export {
+  countryGovernance,
+  countryGovernanceEvents,
+  deletionSchedules,
+} from './engines';

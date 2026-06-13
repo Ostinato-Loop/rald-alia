@@ -4,7 +4,7 @@ import { errorHandler } from './middleware/errorHandler';
 
 export const app = express();
 app.use(tightHelmet());
-app.use(cors());
+app.use(internalCors());
 app.use(express.json());
 
 app.get('/health', (_req, res) => {

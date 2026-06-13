@@ -8,7 +8,7 @@ import { requireAuth } from './middleware/auth.middleware';
 export const app = express();
 
 app.use(tightHelmet());
-app.use(cors());
+app.use(internalCors());
 app.use(express.json());
 app.use(pinoHttp({ logger }));
 

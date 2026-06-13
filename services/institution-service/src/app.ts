@@ -7,7 +7,7 @@ import { logger } from './index';
 export const app = express();
 
 app.use(tightHelmet());
-app.use(cors());
+app.use(internalCors());
 app.use(express.json());
 app.use(requestIdMiddleware);
 

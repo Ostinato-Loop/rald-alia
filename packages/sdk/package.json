@@ -1,0 +1,30 @@
+{
+  "name": "@rald-alia/sdk",
+  "version": "0.1.0",
+  "description": "Official TypeScript SDK for the ALIA Financial Identity Network",
+  "main": "./dist/index.js",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import":  "./dist/index.mjs",
+      "require": "./dist/index.js",
+      "types":   "./dist/index.d.ts"
+    }
+  },
+  "files": ["dist", "README.md"],
+  "scripts": {
+    "build":     "tsup src/index.ts --format cjs,esm --dts --clean",
+    "dev":       "tsup src/index.ts --format cjs,esm --dts --watch",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": ["alia", "financial-identity", "alias", "rald", "payments", "africa"],
+  "license": "MIT",
+  "dependencies": {},
+  "devDependencies": {
+    "tsup":       "^8.3.0",
+    "typescript": "^5.7.3",
+    "@types/node": "^22.0.0"
+  },
+  "engines": { "node": ">=18.0.0" }
+}

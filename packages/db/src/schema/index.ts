@@ -73,3 +73,17 @@ export {
   countryGovernanceEvents,
   deletionSchedules,
 } from './engines';
+
+// ── M7: Developer Registry ────────────────────────────────────────────────────
+// Developer lifecycle: applied → verified → active → suspended → revoked
+// API keys: rald_key_{prod|test}_{48hex} — SHA-256 hash stored, returned once.
+// Rate limits: sandbox=60rpm/10k-rpd, production=120rpm/50k-rpd
+export {
+  developerStatusEnum,
+  projectStatusEnum,
+  apiKeyStatusEnum,
+  developers,
+  developerProjects,
+  developerApiKeys,
+  developerEvents,
+} from './developers';

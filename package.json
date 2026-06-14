@@ -1,0 +1,19 @@
+{
+  "name": "@rald-alia/root",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "build": "pnpm --filter './packages/*' build && pnpm --filter './services/*' build",
+    "typecheck": "pnpm --filter './packages/*' typecheck && pnpm --filter './services/*' typecheck",
+    "test": "vitest run",
+    "db:migrate": "pnpm --filter @rald-alia/db migrate",
+    "db:push": "pnpm --filter @rald-alia/db push"
+  },
+  "devDependencies": {
+    "vitest": "^2.1.8",
+    "@vitest/coverage-v8": "^2.1.8",
+    "typescript": "^5.7.3",
+    "@types/node": "^22.0.0"
+  },
+  "engines": { "node": ">=20.0.0" }
+}

@@ -4,7 +4,7 @@ on:
   push:
     branches: [main]
     paths:
-      - 'frontend/apps/marketing-site/**'
+      - 'frontend/**'
       - '.github/workflows/deploy-marketing.yml'
   workflow_dispatch:
 
@@ -22,6 +22,10 @@ jobs:
       contents: read
       deployments: write
 
+    defaults:
+      run:
+        working-directory: frontend
+
     steps:
       - uses: actions/checkout@v4
 
@@ -32,18 +36,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
-
-      - name: Get pnpm store path
-        id: pnpm-cache
-        run: echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_OUTPUT
-
-      - name: Restore pnpm cache
-        uses: actions/cache@v4
-        with:
-          path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
-          key: pnpm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
-          restore-keys: pnpm-${{ runner.os }}-
-        continue-on-error: true
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -58,10 +50,12 @@ jobs:
           NEXT_PUBLIC_API_URL: https://api.alia.rald.cloud
         run: pnpm build
 
-      - name: Install Wrangler (global, avoids pnpm workspace conflict)
+      - name: Install Wrangler
+        working-directory: .
         run: npm install -g wrangler@3
 
       - name: Deploy to Cloudflare Pages
+        working-directory: .
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -71,6 +65,7 @@ jobs:
             --branch=main
 
       - name: Health check
+        working-directory: .
         run: |
           sleep 20
           STATUS=$(curl -sf -o /dev/null -w "%{http_code}" https://alia.rald.cloud || echo "000")

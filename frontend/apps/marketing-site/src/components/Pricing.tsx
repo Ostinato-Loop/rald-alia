@@ -5,7 +5,7 @@ const plans = [
     desc: 'Full sandbox access for development and testing.',
     features: ['10,000 test resolutions/month', 'All API endpoints', 'Sandbox webhooks', 'Community support'],
     cta: 'Start Free',
-    href: 'https://developers.raldalia.com/register',
+    href: 'https://developer.alia.rald.cloud/register',
     highlight: false,
   },
   {

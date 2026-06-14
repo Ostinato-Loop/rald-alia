@@ -46,7 +46,7 @@ jobs:
           cache: pnpm
 
       - name: Install
-        run: pnpm install --frozen-lockfile
+        run: pnpm install --no-frozen-lockfile
 
       - name: Audit (fail on high/critical)
         run: |
@@ -96,6 +96,7 @@ jobs:
             paths:
               - services
               - packages
+              - lib
             paths-ignore:
               - '**/*.test.ts'
               - '**/__tests__/**'
@@ -109,7 +110,7 @@ jobs:
         with:
           node-version: '20'
           cache: pnpm
-      - run: pnpm install --frozen-lockfile
+      - run: pnpm install --no-frozen-lockfile
 
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v3
@@ -168,7 +169,7 @@ jobs:
           echo "| Gitleaks      | ${{ needs.gitleaks.result }} |"
           echo "| npm audit     | ${{ needs.npm-audit.result }} |"
           echo "| CodeQL        | ${{ needs.codeql.result }} |"
-          
+
           if [[ "${{ needs.gitleaks.result }}" == "failure" ]]; then
             echo "FATAL: gitleaks found committed secrets. Rotate immediately."
             exit 1

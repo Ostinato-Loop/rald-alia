@@ -39,6 +39,7 @@ jobs:
             node_modules
             packages/*/node_modules
             services/*/node_modules
+            lib/*/node_modules
           key: pnpm-${{ runner.os }}-${{ github.sha }}
 
   # ── Typecheck ───────────────────────────────────────────────────────────────
@@ -64,6 +65,7 @@ jobs:
             node_modules
             packages/*/node_modules
             services/*/node_modules
+            lib/*/node_modules
           key: pnpm-${{ runner.os }}-${{ github.sha }}
 
       - run: pnpm typecheck
@@ -92,6 +94,7 @@ jobs:
             node_modules
             packages/*/node_modules
             services/*/node_modules
+            lib/*/node_modules
           key: pnpm-${{ runner.os }}-${{ github.sha }}
 
       - name: Build shared packages
@@ -165,6 +168,7 @@ jobs:
             node_modules
             packages/*/node_modules
             services/*/node_modules
+            lib/*/node_modules
           key: pnpm-${{ runner.os }}-${{ github.sha }}
 
       - name: Run migrations

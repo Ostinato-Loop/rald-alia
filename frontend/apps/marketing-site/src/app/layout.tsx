@@ -8,7 +8,7 @@ export const metadata: Metadata = {
   openGraph: {
     title: 'RALD ALIA',
     description: 'Financial Identity Infrastructure for Africa',
-    url: 'https://raldalia.com',
+    url: 'https://alia.rald.cloud',
     siteName: 'RALD ALIA',
     locale: 'en_NG',
     type: 'website',

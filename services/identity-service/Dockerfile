@@ -3,11 +3,12 @@ RUN corepack enable && corepack prepare pnpm@9 --activate
 WORKDIR /app
 
 FROM base AS builder
-COPY pnpm-workspace.yaml package.json pnpm-lock.yaml ./
+COPY pnpm-workspace.yaml package.json ./
 COPY packages/shared ./packages/shared
 COPY packages/db ./packages/db
 COPY services/identity-service ./services/identity-service
-RUN pnpm install --frozen-lockfile
+RUN printf 'packages:\\n  - \"packages/shared\"\\n  - \"packages/db\"\\n  - \"services/identity-service\"\n' > pnpm-workspace.yaml
+RUN pnpm install --no-frozen-lockfile
 RUN pnpm --filter @rald-alia/shared build
 RUN pnpm --filter @rald-alia/db build
 RUN pnpm --filter @rald-alia/identity-service build

@@ -1,0 +1,77 @@
+name: Deploy — Cloudflare Pages (alia.rald.cloud)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'frontend/apps/marketing-site/**'
+      - '.github/workflows/deploy-marketing.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-marketing-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    name: Build → Cloudflare Pages
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    permissions:
+      contents: read
+      deployments: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: '9'
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: pnpm
+
+      - name: Restore dependency cache
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            node_modules
+            frontend/apps/marketing-site/.next/cache
+          key: pnpm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: pnpm-${{ runner.os }}-
+
+      - name: Install dependencies
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: pnpm install --frozen-lockfile
+
+      - name: Build marketing site (static export)
+        working-directory: frontend/apps/marketing-site
+        env:
+          NODE_ENV: production
+          NEXT_PUBLIC_SITE_URL: https://alia.rald.cloud
+          NEXT_PUBLIC_DEVELOPER_URL: https://developer.alia.rald.cloud
+          NEXT_PUBLIC_DOCS_URL: https://docs.alia.rald.cloud
+          NEXT_PUBLIC_API_URL: https://api.alia.rald.cloud
+        run: pnpm build
+
+      - name: Deploy to Cloudflare Pages
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy frontend/apps/marketing-site/out --project-name=alia-marketing --branch=main
+          # Required secrets (add in GitHub repo → Settings → Secrets):
+          #   CLOUDFLARE_API_TOKEN — Cloudflare API token with Pages:Edit permission
+          #   CLOUDFLARE_ACCOUNT_ID — your Cloudflare account ID
+
+      - name: Health check
+        run: |
+          sleep 20
+          STATUS=$(curl -sf -o /dev/null -w "%{http_code}" https://alia.rald.cloud || echo "000")
+          echo "alia.rald.cloud → HTTP $STATUS"
+          [ "$STATUS" = "200" ] && echo "✓ ALIA live" || echo "⚠ DNS may still be propagating"
+        continue-on-error: true

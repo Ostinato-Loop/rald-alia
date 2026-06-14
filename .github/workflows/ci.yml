@@ -244,7 +244,8 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: services/${{ matrix.service }}/Dockerfile
+          file: Dockerfile.template
+          build-args: SERVICE_NAME=${{ matrix.service }}
           push: true
           tags: |
             ${{ steps.ecr.outputs.registry }}/${{ env.ECR_REPOSITORY_PREFIX }}/${{ matrix.service }}:${{ github.sha }}

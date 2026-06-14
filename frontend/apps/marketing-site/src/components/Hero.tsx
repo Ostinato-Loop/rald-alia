@@ -32,18 +32,18 @@ export function Hero() {
         </h1>
 
         <p className="text-lg text-[#B8BCC8] max-w-2xl mx-auto mb-10 leading-relaxed">
-          RALD ALIA is Africa's financial identity and alias resolution network. Banks, fintechs, and developers
+          RALD ALIA is Africa&apos;s financial identity and alias resolution network. Banks, fintechs, and developers
           use ALIA to route payments using emails, phone numbers, usernames, and business handles — securely, instantly.
         </p>
 
         <div className="flex flex-col sm:flex-row gap-4 justify-center">
-          <Link href="https://developers.raldalia.com/register" className="inline-flex items-center justify-center gap-2 bg-[#D90429] text-white px-8 py-4 rounded-lg font-semibold text-base hover:bg-[#b8001f] transition-all">
+          <Link href="https://developer.alia.rald.cloud/register" className="inline-flex items-center justify-center gap-2 bg-[#D90429] text-white px-8 py-4 rounded-lg font-semibold text-base hover:bg-[#b8001f] transition-all">
             Start Building
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 8l4 4m0 0l-4 4m4-4H3" />
             </svg>
           </Link>
-          <Link href="https://docs.raldalia.com" className="inline-flex items-center justify-center gap-2 bg-transparent text-white px-8 py-4 rounded-lg font-semibold text-base border border-[#2a2a2a] hover:border-[#444] transition-all">
+          <Link href="https://docs.alia.rald.cloud" className="inline-flex items-center justify-center gap-2 bg-transparent text-white px-8 py-4 rounded-lg font-semibold text-base border border-[#2a2a2a] hover:border-[#444] transition-all">
             Read the Docs
           </Link>
         </div>

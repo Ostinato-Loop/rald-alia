@@ -12,8 +12,8 @@ WORKDIR /app
 FROM base AS builder
 ARG SERVICE_NAME
 
-# Workspace manifest files (no lockfile — generated at build time)
-COPY pnpm-workspace.yaml package.json ./
+# Workspace manifest + root TypeScript base config
+COPY pnpm-workspace.yaml package.json tsconfig.base.json ./
 
 # Copy all shared packages in dependency order
 COPY packages/shared  ./packages/shared
@@ -24,7 +24,7 @@ COPY packages/sdk     ./packages/sdk
 # Copy target service
 COPY services/${SERVICE_NAME} ./services/${SERVICE_NAME}
 
-# Install all deps (workspace-aware)
+# Install all deps (workspace-aware, no lockfile required)
 RUN pnpm install --no-frozen-lockfile
 
 # Build packages in dependency order

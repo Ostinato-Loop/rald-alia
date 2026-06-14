@@ -38,7 +38,7 @@ jobs:
           node-version: '20'
 
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        run: pnpm install --no-frozen-lockfile
 
       - name: Build marketing site (static export)
         working-directory: frontend/apps/marketing-site

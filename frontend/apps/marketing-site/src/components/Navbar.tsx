@@ -16,20 +16,20 @@ export function Navbar() {
 
           <div className="hidden md:flex items-center gap-8">
             {['Security', 'Banks', 'Developers', 'Pricing'].map((item) => (
-              <Link key={item} href={`/${item.toLowerCase()}`} className="text-sm text-[#B8BCC8] hover:text-white transition-colors">
+              <Link key={item} href={`#${item.toLowerCase()}`} className="text-sm text-[#B8BCC8] hover:text-white transition-colors">
                 {item}
               </Link>
             ))}
-            <Link href="https://docs.raldalia.com" className="text-sm text-[#B8BCC8] hover:text-white transition-colors">
+            <Link href="https://docs.alia.rald.cloud" className="text-sm text-[#B8BCC8] hover:text-white transition-colors">
               Docs
             </Link>
           </div>
 
           <div className="hidden md:flex items-center gap-3">
-            <Link href="https://developers.raldalia.com" className="text-sm text-[#B8BCC8] hover:text-white px-4 py-2 transition-colors">
+            <Link href="https://developer.alia.rald.cloud" className="text-sm text-[#B8BCC8] hover:text-white px-4 py-2 transition-colors">
               Sign In
             </Link>
-            <Link href="https://developers.raldalia.com/register" className="text-sm font-medium bg-[#D90429] text-white px-4 py-2 rounded-md hover:bg-[#b8001f] transition-colors">
+            <Link href="https://developer.alia.rald.cloud/register" className="text-sm font-medium bg-[#D90429] text-white px-4 py-2 rounded-md hover:bg-[#b8001f] transition-colors">
               Get API Access
             </Link>
           </div>
@@ -42,12 +42,15 @@ export function Navbar() {
         </div>
         {open && (
           <div className="md:hidden border-t border-[#1a1a1a] py-4 flex flex-col gap-4">
-            {['Security', 'Banks', 'Developers', 'Pricing', 'Docs'].map((item) => (
-              <Link key={item} href={`/${item.toLowerCase()}`} className="text-sm text-[#B8BCC8] hover:text-white">
+            {['Security', 'Banks', 'Developers', 'Pricing'].map((item) => (
+              <Link key={item} href={`#${item.toLowerCase()}`} className="text-sm text-[#B8BCC8] hover:text-white">
                 {item}
               </Link>
             ))}
-            <Link href="https://developers.raldalia.com/register" className="text-sm font-medium bg-[#D90429] text-white px-4 py-2 rounded-md text-center">
+            <Link href="https://docs.alia.rald.cloud" className="text-sm text-[#B8BCC8] hover:text-white">
+              Docs
+            </Link>
+            <Link href="https://developer.alia.rald.cloud/register" className="text-sm font-medium bg-[#D90429] text-white px-4 py-2 rounded-md text-center">
               Get API Access
             </Link>
           </div>

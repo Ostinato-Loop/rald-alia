@@ -15,11 +15,12 @@ ARG SERVICE_NAME
 # Workspace manifest + root TypeScript base config
 COPY pnpm-workspace.yaml package.json tsconfig.base.json ./
 
-# Copy all shared packages in dependency order
-COPY packages/shared  ./packages/shared
-COPY packages/kafka   ./packages/kafka
-COPY packages/db      ./packages/db
-COPY packages/sdk     ./packages/sdk
+# Copy ALL shared packages (services may depend on any of them via workspace:*)
+COPY packages/shared        ./packages/shared
+COPY packages/kafka         ./packages/kafka
+COPY packages/db            ./packages/db
+COPY packages/sdk           ./packages/sdk
+COPY packages/observability ./packages/observability
 
 # Copy target service
 COPY services/${SERVICE_NAME} ./services/${SERVICE_NAME}
@@ -27,11 +28,13 @@ COPY services/${SERVICE_NAME} ./services/${SERVICE_NAME}
 # Install all deps (workspace-aware, no lockfile required)
 RUN pnpm install --no-frozen-lockfile
 
-# Build packages in dependency order (non-fatal — services compile what they need)
-RUN pnpm --filter @rald-alia/shared build || true
-RUN pnpm --filter @rald-alia/kafka  build || true
-RUN pnpm --filter @rald-alia/db     build || true
-RUN pnpm --filter @rald-alia/sdk    build || true
+# Build packages in dependency order
+# shared must succeed — its compiled types are consumed by every service
+RUN pnpm --filter @rald-alia/shared       build
+RUN pnpm --filter @rald-alia/kafka        build || true
+RUN pnpm --filter @rald-alia/db           build || true
+RUN pnpm --filter @rald-alia/sdk          build || true
+RUN pnpm --filter @rald-alia/observability build || true
 
 # Build the target service
 RUN pnpm --filter @rald-alia/${SERVICE_NAME} build

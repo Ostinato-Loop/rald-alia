@@ -1,26 +1,23 @@
 # gitleaks configuration
-# https://github.com/zricethezav/gitleaks
+# https://github.com/gitleaks/gitleaks
 
 title = "RALD ALIA — gitleaks config"
 
 [allowlist]
-description = "Allow .env.example files — these contain only placeholder values, no real secrets"
+description = "Global allowlist — .env.example files and placeholder values"
 paths = [
   ".env.example",
-  "services/.*/\\.env\\.example",
-  "packages/.*/\\.env\\.example",
+  '''services/[^/]+/\.env\.example''',
+  '''packages/[^/]+/\.env\.example''',
+  '''lib/[^/]+/\.env\.example''',
 ]
-
-# Ignore fake/placeholder values in comments and docs
-[[rules.allowlists]]
-description = "Ignore placeholder patterns"
 regexes = [
-  "your[-_]?.*[-_]?here",
-  "PLACEHOLDER",
-  "example\\.com",
-  "localhost",
-  "changeme",
-  "CHANGE_ME",
-  "test[-_]?secret",
-  "test[-_]?jwt",
+  '''your[-_]?.*[-_]?here''',
+  '''PLACEHOLDER''',
+  '''example\.com''',
+  '''localhost''',
+  '''changeme''',
+  '''CHANGE_ME''',
+  '''test[-_]?secret''',
+  '''test[-_]?jwt''',
 ]

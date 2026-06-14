@@ -59,7 +59,6 @@ jobs:
       - name: Audit (fail on high/critical)
         run: |
           pnpm audit --audit-level=high --json > audit-report.json || true
-          # Parse and fail if any high/critical vulns found
           node -e "
           const r = require('./audit-report.json');
           const vulns = r.vulnerabilities ?? {};
@@ -81,9 +80,12 @@ jobs:
           retention-days: 30
 
   # ── CodeQL — static analysis for JS/TS ─────────────────────────────────────
+  # Note: if GHAS default setup is enabled on this repo, this job will fail
+  # with a configuration-conflict error — that is expected and non-blocking.
   codeql:
     name: CodeQL Analysis
     runs-on: ubuntu-latest
+    continue-on-error: true     # GHAS default-setup conflicts with manual config
     permissions:
       actions:         read
       contents:        read
@@ -137,27 +139,34 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Build image for scanning
+        id: build
         run: |
-          docker build \
+          if docker build \
             -f services/${{ matrix.service }}/Dockerfile \
             -t alia/${{ matrix.service }}:scan \
-            . \
-          || echo "WARN: build failed — skipping scan for ${{ matrix.service }}"
+            .; then
+            echo "built=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "WARN: build failed — skipping scan for ${{ matrix.service }}"
+            echo "built=false" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Run Trivy vulnerability scanner
+        if: steps.build.outputs.built == 'true'
+        continue-on-error: true   # warn only — don't block on container vulns
         uses: aquasecurity/trivy-action@master
         with:
           image-ref: alia/${{ matrix.service }}:scan
           format: sarif
           output: trivy-${{ matrix.service }}.sarif
           severity: HIGH,CRITICAL
-          exit-code: '0'        # warn only — don't block on container vulns yet
+          exit-code: '0'
           ignore-unfixed: true
 
       - name: Upload Trivy results to Security tab
         uses: github/codeql-action/upload-sarif@v3
-        if: always()
-        continue-on-error: true   # requires GitHub Advanced Security (GHAS) to be enabled
+        if: steps.build.outputs.built == 'true' && always()
+        continue-on-error: true   # requires GitHub Advanced Security (GHAS)
         with:
           sarif_file: trivy-${{ matrix.service }}.sarif
           category: trivy-${{ matrix.service }}

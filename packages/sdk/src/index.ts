@@ -1,16 +1,25 @@
 // packages/sdk/src/index.ts
 // Public API surface of @rald-alia/sdk
 
-export { AliaSDK }                   from './AliaSDK';
-export { AliaHttpClient }            from './client';
-export { AliasClient }               from './modules/alias';
-export { IdentityClient }            from './modules/identity';
-export { TrustClient }               from './modules/trust';
-export { ConsentClient }             from './modules/consent';
-export { RoutingClient }             from './modules/routing';
-export { RegistryClient }            from './modules/registry';
+// ── Main SDK class ────────────────────────────────────────────────────────────
+export { AliaSDK }             from './AliaSDK';
+export { AliaHttpClient }      from './client';
 
-// Errors
+// ── Core identity modules ─────────────────────────────────────────────────────
+export { AliasClient }         from './modules/alias';
+export { IdentityClient }      from './modules/identity';
+export { TrustClient }         from './modules/trust';
+export { ConsentClient }       from './modules/consent';
+export { RoutingClient }       from './modules/routing';
+export { RegistryClient }      from './modules/registry';
+
+// ── ALIA Connect — Integration Engine ────────────────────────────────────────
+export { PartnerClient }       from './modules/partner';
+export { PaymentClient }       from './modules/payment';
+export { MerchantClient }      from './modules/merchant';
+export { SubscriptionClient }  from './modules/subscription';
+
+// ── Errors ────────────────────────────────────────────────────────────────────
 export {
   AliaError,
   AliaApiError,
@@ -22,27 +31,39 @@ export {
   AliaNetworkError,
 } from './errors';
 
-// Types
+// ── Types — Core ──────────────────────────────────────────────────────────────
 export type {
   AliaSDKConfig,
-  AliasType,
-  AliasStatus,
-  Alias,
-  AliasRouting,
-  ResolveAliasParams,
-  CreateAliasParams,
-  IdentityStatus,
-  IdentityVerification,
-  VerifyIdentityParams,
-  TrustScore,
-  TrustFactor,
-  ConsentStatus,
-  Consent,
-  GrantConsentParams,
-  RoutingStatus,
-  RoutingRequest,
-  InitiateRoutingParams,
+  // Alias
+  AliasType, AliasStatus, Alias, AliasRouting,
+  ResolveAliasParams, CreateAliasParams,
+  // Identity
+  IdentityStatus, IdentityVerification, VerifyIdentityParams,
+  // Trust
+  TrustScore, TrustFactor,
+  // Consent
+  ConsentStatus, Consent, GrantConsentParams,
+  // Routing
+  RoutingStatus, RoutingRequest, InitiateRoutingParams,
+  // Registry
   RegistryRecord,
-  ApiResponse,
-  PaginatedResponse,
+  // Common
+  ApiResponse, PaginatedResponse,
+} from './types';
+
+// ── Types — ALIA Connect ──────────────────────────────────────────────────────
+export type {
+  // Partner
+  PartnerType, PartnerStatus, Partner,
+  RegisterPartnerParams,
+  WebhookConfig, CreateWebhookParams, UpdateWebhookParams, WebhookTestResult,
+  // Payment
+  PaymentStatus, Payment,
+  InitiatePaymentParams, VerifyPaymentParams,
+  // Merchant
+  MerchantStatus, MerchantCategory, Merchant,
+  RegisterMerchantParams, CheckoutSession, CreateCheckoutParams,
+  // Subscription
+  SubscriptionStatus, SubscriptionInterval, SubscriptionPlan, Subscription,
+  CreateSubscriptionParams, CancelSubscriptionParams,
 } from './types';

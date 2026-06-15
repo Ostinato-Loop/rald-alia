@@ -10,8 +10,8 @@
     "db:push": "pnpm --filter @rald-alia/db push"
   },
   "devDependencies": {
-    "vitest": "^2.1.8",
-    "@vitest/coverage-v8": "^2.1.8",
+    "vitest": "^4.1.9",
+    "@vitest/coverage-v8": "^4.1.9",
     "typescript": "^5.7.3",
     "@types/node": "^22.0.0"
   },

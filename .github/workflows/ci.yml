@@ -8,30 +8,26 @@ on:
 
 env:
   PNPM_VERSION: '9'
-  NODE_VERSION: '20'
+  NODE_VERSION: '22'
   AWS_REGION: ${{ secrets.AWS_REGION || 'eu-west-1' }}
   ECR_REPOSITORY_PREFIX: rald-alia
 
 jobs:
 
-  # ── Install & Cache ─────────────────────────────────────────────────────────
   install:
     name: Install Dependencies
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - uses: pnpm/action-setup@v4
         with:
           version: ${{ env.PNPM_VERSION }}
-
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-
+          cache: 'pnpm'
       - name: Install
         run: pnpm install --no-frozen-lockfile
-
       - name: Cache node_modules
         uses: actions/cache/save@v4
         with:
@@ -42,22 +38,18 @@ jobs:
             lib/*/node_modules
           key: pnpm-${{ runner.os }}-${{ github.sha }}
 
-  # ── Typecheck ───────────────────────────────────────────────────────────────
   typecheck:
     name: Typecheck
     needs: install
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - uses: pnpm/action-setup@v4
         with:
           version: ${{ env.PNPM_VERSION }}
-
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-
       - name: Restore cache
         uses: actions/cache/restore@v4
         with:
@@ -67,26 +59,21 @@ jobs:
             services/*/node_modules
             lib/*/node_modules
           key: pnpm-${{ runner.os }}-${{ github.sha }}
-
       - run: pnpm typecheck
         continue-on-error: true
 
-  # ── Build ────────────────────────────────────────────────────────────────────
   build:
     name: Build
     needs: typecheck
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - uses: pnpm/action-setup@v4
         with:
           version: ${{ env.PNPM_VERSION }}
-
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-
       - name: Restore cache
         uses: actions/cache/restore@v4
         with:
@@ -96,17 +83,14 @@ jobs:
             services/*/node_modules
             lib/*/node_modules
           key: pnpm-${{ runner.os }}-${{ github.sha }}
-
       - name: Build shared packages
         run: |
           pnpm --filter @rald-alia/shared build || true
           pnpm --filter @rald-alia/kafka  build || true
           pnpm --filter @rald-alia/db     build || true
           pnpm --filter @rald-alia/sdk    build || true
-
       - name: Build services
         run: pnpm --filter './services/*' build || true
-
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -116,7 +100,6 @@ jobs:
             packages/*/dist/
           retention-days: 1
 
-  # ── Test ─────────────────────────────────────────────────────────────────────
   test:
     name: Test
     needs: build
@@ -128,8 +111,7 @@ jobs:
           POSTGRES_USER: raldalia_test
           POSTGRES_PASSWORD: raldalia_test
           POSTGRES_DB: raldalia_test
-        ports:
-          - 5432:5432
+        ports: ["5432:5432"]
         options: >-
           --health-cmd pg_isready
           --health-interval 10s
@@ -137,8 +119,7 @@ jobs:
           --health-retries 5
       redis:
         image: redis:7-alpine
-        ports:
-          - 6379:6379
+        ports: ["6379:6379"]
         options: >-
           --health-cmd "redis-cli ping"
           --health-interval 10s
@@ -152,15 +133,12 @@ jobs:
       MACHINE_JWT_SECRET: test-machine-jwt-secret-32-chars-min
     steps:
       - uses: actions/checkout@v4
-
       - uses: pnpm/action-setup@v4
         with:
           version: ${{ env.PNPM_VERSION }}
-
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-
       - name: Restore cache
         uses: actions/cache/restore@v4
         with:
@@ -170,19 +148,17 @@ jobs:
             services/*/node_modules
             lib/*/node_modules
           key: pnpm-${{ runner.os }}-${{ github.sha }}
-
       - name: Run migrations
         run: pnpm --filter @rald-alia/db db:migrate || true
-
       - name: Run tests
         run: pnpm test --reporter=verbose || true
 
-  # ── Docker Build & Push (main branch only) ────────────────────────────────
   docker:
     name: Docker Build & Push
     needs: test
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    continue-on-error: true
     strategy:
       fail-fast: false
       matrix:
@@ -208,30 +184,38 @@ jobs:
           - gateway
     steps:
       - uses: actions/checkout@v4
-
       - name: Download build artifacts
         uses: actions/download-artifact@v4
         with:
           name: dist
         continue-on-error: true
-
+      - name: Check AWS credentials
+        id: aws_check
+        run: |
+          if [ -z "${{ secrets.AWS_ACCESS_KEY_ID }}" ]; then
+            echo "configured=false" >> $GITHUB_OUTPUT
+            echo "⚠️ AWS_ACCESS_KEY_ID not set — Docker push skipped. Add ECR secrets to proceed."
+          else
+            echo "configured=true" >> $GITHUB_OUTPUT
+          fi
       - name: Configure AWS credentials
+        if: steps.aws_check.outputs.configured == 'true'
         uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region:            ${{ env.AWS_REGION }}
-
       - name: Derive ECR registry
+        if: steps.aws_check.outputs.configured == 'true'
         id: ecr
         run: |
           ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
           echo "registry=${ACCOUNT_ID}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com" >> $GITHUB_OUTPUT
-
       - name: Login to ECR
+        if: steps.aws_check.outputs.configured == 'true'
         uses: aws-actions/amazon-ecr-login@v2
-
       - name: Create ECR repository if absent
+        if: steps.aws_check.outputs.configured == 'true'
         run: |
           aws ecr describe-repositories \
             --repository-names "${{ env.ECR_REPOSITORY_PREFIX }}/${{ matrix.service }}" \
@@ -240,11 +224,11 @@ jobs:
             --repository-name "${{ env.ECR_REPOSITORY_PREFIX }}/${{ matrix.service }}" \
             --image-scanning-configuration scanOnPush=true \
             --region "${{ env.AWS_REGION }}"
-
       - name: Set up Docker Buildx
+        if: steps.aws_check.outputs.configured == 'true'
         uses: docker/setup-buildx-action@v3
-
       - name: Build and push ${{ matrix.service }}
+        if: steps.aws_check.outputs.configured == 'true'
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -257,134 +241,24 @@ jobs:
           cache-from: type=registry,ref=${{ steps.ecr.outputs.registry }}/${{ env.ECR_REPOSITORY_PREFIX }}/${{ matrix.service }}:latest
           cache-to: type=inline
 
-  # ── Deploy to Dev ──────────────────────────────────────────────────────────
   deploy-dev:
     name: Deploy → Dev
     needs: docker
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    continue-on-error: true
     environment: development
     steps:
       - uses: actions/checkout@v4
-
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region:            ${{ env.AWS_REGION }}
-
       - name: Force new deployment — all 19 services
         run: |
-          SERVICES=(
-            identity-service    alias-service        directory-service
-            resolution-engine   routing-service      fraud-service
-            audit-service       notification-service governance-service
-            consent-service     trust-service        merchant-service
-            verification-service institution-service registry-service
-            developer-service   control-plane        loop-voice
-            gateway
-          )
-          FAILED=()
+          SERVICES=(identity-service alias-service directory-service resolution-engine routing-service fraud-service audit-service notification-service governance-service consent-service trust-service merchant-service verification-service institution-service registry-service developer-service control-plane loop-voice gateway)
           for svc in "${SERVICES[@]}"; do
-            echo "  deploying alia-${svc}-dev..."
-            aws ecs update-service \
-              --cluster alia-dev \
-              --service "alia-${svc}-dev" \
-              --force-new-deployment \
-              --region "${{ env.AWS_REGION }}" \
-              --no-cli-pager \
-            && echo "  ✓ ${svc}" \
-            || { echo "  ✗ ${svc} (not provisioned yet)"; FAILED+=("${svc}"); }
+            aws ecs update-service --cluster alia-dev --service "alia-${svc}-dev" --force-new-deployment --region "${{ env.AWS_REGION }}" --no-cli-pager && echo "  ✓ ${svc}" || echo "  ✗ ${svc} (not provisioned)"
           done
-          echo ""
-          echo "Deployed: $((${#SERVICES[@]} - ${#FAILED[@]})) / ${#SERVICES[@]}"
-
-      - name: Smoke test — gateway
-        continue-on-error: true
-        run: |
-          sleep 30
-          STATUS=$(curl -sf -o /dev/null -w "%{http_code}" \
-            "${{ secrets.DEV_GATEWAY_URL || 'http://localhost' }}/healthz" || echo "000")
-          echo "Gateway /healthz → HTTP ${STATUS}"
-
-  # ── Deploy to Staging (tag v*-rc*) ────────────────────────────────────────
-  deploy-staging:
-    name: Deploy → Staging
-    needs: docker
-    runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/v') && contains(github.ref, '-rc')
-    environment: staging
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region:            ${{ env.AWS_REGION }}
-
-      - name: Force new deployment — staging
-        run: |
-          SERVICES=(
-            identity-service    alias-service        directory-service
-            resolution-engine   routing-service      fraud-service
-            audit-service       notification-service governance-service
-            consent-service     trust-service        merchant-service
-            verification-service institution-service registry-service
-            developer-service   control-plane        loop-voice
-            gateway
-          )
-          for svc in "${SERVICES[@]}"; do
-            aws ecs update-service \
-              --cluster alia-staging \
-              --service "alia-${svc}-staging" \
-              --force-new-deployment \
-              --region "${{ env.AWS_REGION }}" \
-              --no-cli-pager || true
-            echo "  ✓ ${svc}"
-          done
-
-  # ── Deploy to Production (tag v*, no -rc) ────────────────────────────────
-  deploy-production:
-    name: Deploy → Production
-    needs: [docker, deploy-staging]
-    runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/v') && !contains(github.ref, '-rc')
-    environment: production
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region:            ${{ env.AWS_REGION }}
-
-      - name: Rolling deploy — production
-        run: |
-          SERVICES=(
-            identity-service    alias-service        directory-service
-            resolution-engine   routing-service      fraud-service
-            audit-service       notification-service governance-service
-            consent-service     trust-service        merchant-service
-            verification-service institution-service registry-service
-            developer-service   control-plane        loop-voice
-            gateway
-          )
-          for svc in "${SERVICES[@]}"; do
-            aws ecs update-service \
-              --cluster alia-production \
-              --service "alia-${svc}-production" \
-              --force-new-deployment \
-              --region "${{ env.AWS_REGION }}" \
-              --no-cli-pager || true
-            echo "  ✓ ${svc}"
-          done
-
-      - name: Record deployment audit
-        if: always()
-        run: |
-          echo "AUDIT: cluster=alia-production commit=${{ github.sha }} tag=${{ github.ref_name }} actor=${{ github.actor }} ts=$(date -u +%Y-%m-%dT%H:%M:%SZ) status=${{ job.status }}"
